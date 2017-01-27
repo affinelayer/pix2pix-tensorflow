@@ -199,11 +199,17 @@ def lab_to_rgb(lab):
 
 
 def load_examples():
+    if not os.path.exists(a.input_dir):
+        raise Exception("input_dir does not exist")
+
     input_paths = glob.glob(os.path.join(a.input_dir, "*.jpg"))
     decode = tf.image.decode_jpeg
     if len(input_paths) == 0:
         input_paths = glob.glob(os.path.join(a.input_dir, "*.png"))
         decode = tf.image.decode_png
+
+    if len(input_paths) == 0:
+        raise Exception("input_dir contains no image files")
 
     def get_name(path):
         name, _ = os.path.splitext(os.path.basename(path))
