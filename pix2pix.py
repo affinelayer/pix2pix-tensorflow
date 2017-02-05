@@ -453,6 +453,10 @@ def save_images(fetches, image_dir, step=None):
     filesets = []
     for i, in_path in enumerate(fetches["paths"]):
         name, _ = os.path.splitext(os.path.basename(in_path))
+        try:
+            name = str(name, 'utf-8')
+        except TypeError:
+            pass
         fileset = {"name": name, "step": step}
         for kind in ["inputs", "outputs", "targets"]:
             filename = name + "-" + kind + ".png"
@@ -461,7 +465,7 @@ def save_images(fetches, image_dir, step=None):
             fileset[kind] = filename
             out_path = os.path.join(image_dir, filename)
             contents = fetches[kind][i]
-            with open(out_path, "w") as f:
+            with open(out_path, "wb") as f:
                 f.write(contents)
         filesets.append(fileset)
     return filesets
@@ -510,7 +514,7 @@ def main():
         # load some options from the checkpoint
         options = {"which_direction", "ngf", "ndf", "lab_colorization"}
         with open(os.path.join(a.checkpoint, "options.json")) as f:
-            for key, val in json.loads(f.read()).iteritems():
+            for key, val in json.loads(f.read()).items():
                 if key in options:
                     print("loaded", key, "=", val)
                     setattr(a, key, val)
