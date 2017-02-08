@@ -4,7 +4,6 @@ from __future__ import print_function
 
 import argparse
 import os
-import random
 import tensorflow as tf
 import numpy as np
 
@@ -17,18 +16,6 @@ parser.add_argument("--pad", action="store_true", help="pad instead of crop for 
 parser.add_argument("--size", type=int, default=256, help="size to use for resize operation")
 parser.add_argument("--b_dir", type=str, help="path to folder containing B images for combine operation")
 a = parser.parse_args()
-
-
-def grayscale(img):
-    img = img / 255
-    img = 0.299 * img[:,:,0] + 0.587 * img[:,:,1] + 0.114 * img[:,:,2]
-    return (np.expand_dims(img, axis=2) * 255).astype(np.uint8)
-
-
-def normalize(img):
-    img -= img.min()
-    img /= img.max()
-    return img
 
 
 def create_op(func, **placeholders):
@@ -166,8 +153,6 @@ def png_path(path):
 
 
 def main():
-    random.seed(0)
-
     if not os.path.exists(a.output_dir):
         os.makedirs(a.output_dir)
 
