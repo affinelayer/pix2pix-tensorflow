@@ -31,7 +31,7 @@ parser.add_argument("--display_freq", type=int, default=0, help="write current t
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 
 parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
-parser.add_argument("--lab_colorization", action="store_true", help="image into brightness (A) and color (B)")
+parser.add_argument("--lab_colorization", action="store_true", help="split input image into brightness (A) and color (B)")
 parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
 parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
 parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
