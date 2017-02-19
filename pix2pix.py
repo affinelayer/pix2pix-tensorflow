@@ -577,13 +577,23 @@ def main():
         if a.lab_colorization:
             raise Exception("export not supported for lab_colorization")
 
-        input = tf.placeholder(tf.float32, shape=[CROP_SIZE, CROP_SIZE, 3], name="input")
+        input = tf.placeholder(tf.string, shape=[1])
+        input_data = tf.decode_base64(input[0])
+        input_image = tf.image.decode_png(input_data)
+        # remove alpha channel if present
+        input_image = input_image[:,:,:3]
+        input_image = tf.image.convert_image_dtype(input_image, dtype=tf.float32)
+        input_image.set_shape([CROP_SIZE, CROP_SIZE, 3])
+        batch_input = tf.expand_dims(input_image, axis=0)
+
         with tf.variable_scope("generator") as scope:
-            outputs = create_generator(tf.expand_dims(preprocess(input), axis=0), 3)
+            batch_output = deprocess(create_generator(preprocess(batch_input), 3))
 
-        output = deprocess(tf.identity(outputs[0,:,:,:], name="output"))
+        output_image = tf.image.convert_image_dtype(batch_output, dtype=tf.uint8)[0]
+        output_data = tf.image.encode_png(output_image)
+        output = tf.convert_to_tensor([tf.encode_base64(output_data)])
 
-        key = tf.placeholder(tf.string, shape=[None])
+        key = tf.placeholder(tf.string, shape=[1])
         inputs = {
             "key": key.name,
             "input": input.name
@@ -725,7 +735,8 @@ def main():
             print("wrote index at", index_path)
         else:
             # training
-            start_time = time.time()
+            start = time.time()
+
             for step in range(max_steps):
                 def should(freq):
                     return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
@@ -753,25 +764,27 @@ def main():
                     fetches["display"] = display_fetches
 
                 results = sess.run(fetches, options=options, run_metadata=run_metadata)
-                global_step = results["global_step"]
 
                 if should(a.summary_freq):
-                    sv.summary_writer.add_summary(results["summary"], global_step)
+                    print("recording summary")
+                    sv.summary_writer.add_summary(results["summary"], results["global_step"])
 
                 if should(a.display_freq):
                     print("saving display images")
-                    filesets = save_images(results["display"], step=global_step)
+                    filesets = save_images(results["display"], step=results["global_step"])
                     append_index(filesets, step=True)
 
                 if should(a.trace_freq):
                     print("recording trace")
-                    sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % global_step)
+                    sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % results["global_step"])
 
                 if should(a.progress_freq):
                     # global_step will have the correct step count if we resume from a checkpoint
-                    train_epoch = math.ceil(global_step / examples.steps_per_epoch)
-                    train_step = global_step - (train_epoch - 1) * examples.steps_per_epoch
-                    print("progress  epoch %d  step %d  image/sec %0.1f" % (train_epoch, train_step, global_step * a.batch_size / (time.time() - start_time)))
+                    train_epoch = math.ceil(results["global_step"] / examples.steps_per_epoch)
+                    train_step = (results["global_step"] - 1) % examples.steps_per_epoch + 1
+                    rate = (step + 1) * a.batch_size / (time.time() - start)
+                    remaining = (max_steps - step) * a.batch_size / rate
+                    print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
                     print("discrim_loss", results["discrim_loss"])
                     print("gen_loss_GAN", results["gen_loss_GAN"])
                     print("gen_loss_L1", results["gen_loss_L1"])

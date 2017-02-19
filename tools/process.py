@@ -2,230 +2,292 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+
 import argparse
 import os
+import tempfile
+import subprocess
 import tensorflow as tf
 import numpy as np
+import tfimage as im
+import threading
+import time
+import multiprocessing
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_dir", required=True, help="path to folder containing images")
 parser.add_argument("--output_dir", required=True, help="output path")
-parser.add_argument("--operation", required=True, choices=["grayscale", "resize", "blank", "combine"])
+parser.add_argument("--operation", required=True, choices=["grayscale", "resize", "blank", "combine", "edges"])
+parser.add_argument("--workers", type=int, default=1, help="number of workers")
+# resize
 parser.add_argument("--pad", action="store_true", help="pad instead of crop for resize operation")
 parser.add_argument("--size", type=int, default=256, help="size to use for resize operation")
+# combine
 parser.add_argument("--b_dir", type=str, help="path to folder containing B images for combine operation")
 a = parser.parse_args()
 
 
-def create_op(func, **placeholders):
-    op = func(**placeholders)
+def resize(src):
+    height, width, _ = src.shape
+    dst = src
+    if height != width:
+        if a.pad:
+            size = max(height, width)
+            # pad to correct ratio
+            oh = (size - height) // 2
+            ow = (size - width) // 2
+            dst = im.pad(image=dst, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
+        else:
+            # crop to correct ratio
+            size = min(height, width)
+            oh = (height - size) // 2
+            ow = (width - size) // 2
+            dst = im.crop(image=dst, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
 
-    def f(**kwargs):
-        feed_dict = {}
-        for argname, argvalue in kwargs.iteritems():
-            placeholder = placeholders[argname]
-            feed_dict[placeholder] = argvalue
-        return op.eval(feed_dict=feed_dict)
+    assert(dst.shape[0] == dst.shape[1])
 
-    return f
-
-downscale = create_op(
-    func=tf.image.resize_images,
-    images=tf.placeholder(tf.float32, [None, None, None]),
-    size=tf.placeholder(tf.int32, [2]),
-    method=tf.image.ResizeMethod.AREA,
-)
-
-upscale = create_op(
-    func=tf.image.resize_images,
-    images=tf.placeholder(tf.float32, [None, None, None]),
-    size=tf.placeholder(tf.int32, [2]),
-    method=tf.image.ResizeMethod.BICUBIC,
-)
-
-decode_jpeg = create_op(
-    func=tf.image.decode_jpeg,
-    contents=tf.placeholder(tf.string),
-)
-
-decode_png = create_op(
-    func=tf.image.decode_png,
-    contents=tf.placeholder(tf.string),
-)
-
-rgb_to_grayscale = create_op(
-    func=tf.image.rgb_to_grayscale,
-    images=tf.placeholder(tf.float32),
-)
-
-grayscale_to_rgb = create_op(
-    func=tf.image.grayscale_to_rgb,
-    images=tf.placeholder(tf.float32),
-)
-
-encode_jpeg = create_op(
-    func=tf.image.encode_jpeg,
-    image=tf.placeholder(tf.uint8),
-)
-
-encode_png = create_op(
-    func=tf.image.encode_png,
-    image=tf.placeholder(tf.uint8),
-)
-
-crop = create_op(
-    func=tf.image.crop_to_bounding_box,
-    image=tf.placeholder(tf.float32),
-    offset_height=tf.placeholder(tf.int32, []),
-    offset_width=tf.placeholder(tf.int32, []),
-    target_height=tf.placeholder(tf.int32, []),
-    target_width=tf.placeholder(tf.int32, []),
-)
-
-pad = create_op(
-    func=tf.image.pad_to_bounding_box,
-    image=tf.placeholder(tf.float32),
-    offset_height=tf.placeholder(tf.int32, []),
-    offset_width=tf.placeholder(tf.int32, []),
-    target_height=tf.placeholder(tf.int32, []),
-    target_width=tf.placeholder(tf.int32, []),
-)
-
-to_uint8 = create_op(
-    func=tf.image.convert_image_dtype,
-    image=tf.placeholder(tf.float32),
-    dtype=tf.uint8,
-    saturate=True,
-)
-
-to_float32 = create_op(
-    func=tf.image.convert_image_dtype,
-    image=tf.placeholder(tf.uint8),
-    dtype=tf.float32,
-)
+    size, _, _ = dst.shape
+    if size > a.size:
+        dst = im.downscale(images=dst, size=[a.size, a.size])
+    elif size < a.size:
+        dst = im.upscale(images=dst, size=[a.size, a.size])
+    return dst
 
 
-def load(path):
-    contents = open(path).read()
-    _, ext = os.path.splitext(path.lower())
+def blank(src):
+    height, width, _ = src.shape
+    if height != width:
+        raise Exception("non-square image")
 
-    if ext == ".jpg":
-        image = decode_jpeg(contents=contents)
-    elif ext == ".png":
-        image = decode_png(contents=contents)
+    image_size = width
+    size = int(image_size * 0.3)
+    offset = int(image_size / 2 - size / 2)
+
+    dst = src
+    dst[offset:offset + size,offset:offset + size,:] = np.ones([size, size, 3])
+    return dst
+
+
+def combine(src, src_path):
+    if a.b_dir is None:
+        raise Exception("missing b_dir")
+
+    # find corresponding file in b_dir, could have a different extension
+    basename, _ = os.path.splitext(os.path.basename(src_path))
+    for ext in [".png", ".jpg"]:
+        sibling_path = os.path.join(a.b_dir, basename + ext)
+        if os.path.exists(sibling_path):
+            sibling = im.load(sibling_path)
+            break
     else:
-        raise Exception("invalid image suffix")
+        raise Exception("could not find sibling image for " + src_path)
 
-    return to_float32(image=image)
+    # make sure that dimensions are correct
+    height, width, _ = src.shape
+    if height != sibling.shape[0] or width != sibling.shape[1]:
+        raise Exception("differing sizes")
+    
+    # convert both images to RGB if necessary
+    if src.shape[2] == 1:
+        src = im.grayscale_to_rgb(images=src)
+
+    if sibling.shape[2] == 1:
+        sibling = im.grayscale_to_rgb(images=sibling)
+
+    # remove alpha channel
+    if src.shape[2] == 4:
+        src = src[:,:,:3]
+    
+    if sibling.shape[2] == 4:
+        sibling = sibling[:,:,:3]
+
+    return np.concatenate([src, sibling], axis=1)
 
 
-def find(d):
-    result = []
-    for filename in os.listdir(d):
-        _, ext = os.path.splitext(filename.lower())
-        if ext == ".jpg" or ext == ".png":
-            result.append(os.path.join(d, filename))
-    result.sort()
-    return result
+def grayscale(src):
+    return im.grayscale_to_rgb(images=im.rgb_to_grayscale(images=src))
 
 
-def save(image, path):
-    _, ext = os.path.splitext(path.lower())
-    image = to_uint8(image=image)
-    if ext == ".jpg":
-        encoded = encode_jpeg(image=image)
-    elif ext == ".png":
-        encoded = encode_png(image=image)
+net = None
+def run_caffe(src):
+    # lazy load caffe and create net
+    global net
+    if net is None:
+        # don't require caffe unless we are doing edge detection
+        os.environ["GLOG_minloglevel"] = "2" # disable logging from caffe
+        import caffe
+        # using this requires using the docker image or assembling a bunch of dependencies
+        # and then changing these hardcoded paths
+        net = caffe.Net("/opt/caffe/examples/hed/deploy.prototxt", "/opt/caffe/hed_pretrained_bsds.caffemodel", caffe.TEST)
+        
+    net.blobs["data"].reshape(1, *src.shape)
+    net.blobs["data"].data[...] = src
+    net.forward()
+    return net.blobs["sigmoid-fuse"].data[0][0,:,:]
+
+
+# create the pool before we launch processing threads
+# we must create the pool after run_caffe is defined
+if a.operation == "edges":
+    edge_pool = multiprocessing.Pool(a.workers)
+    
+def edges(src):
+    # based on https://github.com/phillipi/pix2pix/blob/master/scripts/edges/batch_hed.py
+    # and https://github.com/phillipi/pix2pix/blob/master/scripts/edges/PostprocessHED.m
+    import scipy.io
+    src = src * 255
+    border = 128 # put a padding around images since edge detection seems to detect edge of image
+    src = src[:,:,:3] # remove alpha channel if present
+    src = np.pad(src, ((border, border), (border, border), (0,0)), "reflect")
+    src = src[:,:,::-1]
+    src -= np.array((104.00698793,116.66876762,122.67891434))
+    src = src.transpose((2, 0, 1))
+
+    # [height, width, channels] => [batch, channel, height, width]
+    fuse = edge_pool.apply(run_caffe, [src])
+    fuse = fuse[border:-border, border:-border]
+
+    with tempfile.NamedTemporaryFile(suffix=".png") as png_file, tempfile.NamedTemporaryFile(suffix=".mat") as mat_file:
+        scipy.io.savemat(mat_file.name, {"input": fuse})
+        
+        octave_code = r"""
+E = 1-load(input_path).input;
+E = imresize(E, [image_width,image_width]);
+E = 1 - E;
+E = single(E);
+[Ox, Oy] = gradient(convTri(E, 4), 1);
+[Oxx, ~] = gradient(Ox, 1);
+[Oxy, Oyy] = gradient(Oy, 1);
+O = mod(atan(Oyy .* sign(-Oxy) ./ (Oxx + 1e-5)), pi);
+E = edgesNmsMex(E, O, 1, 5, 1.01, 1);
+E = double(E >= max(eps, threshold));
+E = bwmorph(E, 'thin', inf);
+E = bwareaopen(E, small_edge);
+E = 1 - E;
+E = uint8(E * 255);
+imwrite(E, output_path);
+"""
+
+        config = dict(
+            input_path="'%s'" % mat_file.name,
+            output_path="'%s'" % png_file.name,
+            image_width=256,
+            threshold=25.0/255.0,
+            small_edge=5,
+        )
+
+        args = ["octave"]
+        for k, v in config.items():
+            args.extend(["--eval", "%s=%s;" % (k, v)])
+
+        args.extend(["--eval", octave_code])
+        try:
+            subprocess.check_output(args, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as e:
+            print("octave failed")
+            print("returncode:", e.returncode)
+            print("output:", e.output)
+            raise
+        return im.load(png_file.name)
+
+
+def process(src_path, dst_path):
+    src = im.load(src_path)
+
+    if a.operation == "grayscale":
+        dst = grayscale(src)
+    elif a.operation == "resize":
+        dst = resize(src)
+    elif a.operation == "blank":
+        dst = blank(src)
+    elif a.operation == "combine":
+        dst = combine(src, src_path)
+    elif a.operation == "edges":
+        dst = edges(src)
     else:
-        raise Exception("invalid image suffix")
+        raise Exception("invalid operation")
 
-    if os.path.exists(path):
-        raise Exception("file already exists at " + path)
-
-    with open(path, "w") as f:
-        f.write(encoded)
+    im.save(dst, dst_path)
 
 
-def png_path(path):
-    basename, _ = os.path.splitext(os.path.basename(path))
-    return os.path.join(os.path.dirname(path), basename + ".png")
+complete_lock = threading.Lock()
+start = time.time()
+num_complete = 0
+total = 0
+
+def complete():
+    global num_complete, rate, last_complete
+
+    with complete_lock:
+        num_complete += 1
+        now = time.time()
+        elapsed = now - start
+        rate = num_complete / elapsed
+        if rate > 0:
+            remaining = (total - num_complete) / rate
+        else:
+            remaining = 0
+
+        print("%d/%d complete  %0.2f images/sec  %dm%ds elapsed  %dm%ds remaining" % (num_complete, total, rate, elapsed // 60, elapsed % 60, remaining // 60, remaining % 60))
+
+        last_complete = now
 
 
 def main():
     if not os.path.exists(a.output_dir):
         os.makedirs(a.output_dir)
 
-    with tf.Session() as sess:
-        for src_path in find(a.input_dir):
-            dst_path = png_path(os.path.join(a.output_dir, os.path.basename(src_path)))
-            print(src_path, "->", dst_path)
-            src = load(src_path)
+    src_paths = []
+    dst_paths = []
 
-            if a.operation == "grayscale":
-                dst = grayscale_to_rgb(images=rgb_to_grayscale(images=src))
-            elif a.operation == "resize":
-                height, width, _ = src.shape
-                dst = src
-                if height != width:
-                    if a.pad:
-                        size = max(height, width)
-                        # pad to correct ratio
-                        oh = (size - height) // 2
-                        ow = (size - width) // 2
-                        dst = pad(image=dst, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
-                    else:
-                        # crop to correct ratio
-                        size = min(height, width)
-                        oh = (height - size) // 2
-                        ow = (width - size) // 2
-                        dst = crop(image=dst, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
+    for src_path in im.find(a.input_dir):
+        name, _ = os.path.splitext(os.path.basename(src_path))
+        dst_path = os.path.join(a.output_dir, name + ".png")
+        if not os.path.exists(dst_path):
+            src_paths.append(src_path)
+            dst_paths.append(dst_path)
+    
+    global total
+    total = len(src_paths)
+    
+    if a.workers == 1:
+        with tf.Session() as sess:
+            for src_path, dst_path in zip(src_paths, dst_paths):
+                process(src_path, dst_path)
+                complete()
+    else:
+        queue = tf.train.input_producer(zip(src_paths, dst_paths), shuffle=False, num_epochs=1)
+        dequeue_op = queue.dequeue()
 
-                assert(dst.shape[0] == dst.shape[1])
-
-                size, _, _ = dst.shape
-                if size > a.size:
-                    dst = downscale(images=dst, size=[a.size, a.size])
-                elif size < a.size:
-                    dst = upscale(images=dst, size=[a.size, a.size])
-            elif a.operation == "blank":
-                height, width, _ = src.shape
-                if height != width:
-                    raise Exception("non-square image")
-
-                image_size = width
-                size = int(image_size * 0.3)
-                offset = int(image_size / 2 - size / 2)
-
-                dst = src
-                dst[offset:offset + size,offset:offset + size,:] = np.ones([size, size, 3])
-            elif a.operation == "combine":
-                if a.b_dir is None:
-                    raise Exception("missing b_dir")
-
-                # find corresponding file in b_dir, could have a different extension
-                basename, _ = os.path.splitext(os.path.basename(src_path))
-                for ext in [".png", ".jpg"]:
-                    sibling_path = os.path.join(a.b_dir, basename + ext)
-                    if os.path.exists(sibling_path):
-                        sibling = load(sibling_path)
+        def worker(coord):
+            with sess.as_default():
+                while not coord.should_stop():
+                    try:
+                        src_path, dst_path = sess.run(dequeue_op)
+                    except tf.errors.OutOfRangeError:
+                        coord.request_stop()
                         break
-                else:
-                    raise Exception("could not find sibling image for " + src_path)
 
-                # make sure that dimensions are correct
-                height, width, _ = src.shape
-                if height != sibling.shape[0] or width != sibling.shape[1]:
-                    raise Exception("differing sizes")
+                    process(src_path, dst_path)
+                    complete()
 
-                # remove alpha channel
-                src = src[:,:,:3]
-                sibling = sibling[:,:,:3]
-                dst = np.concatenate([src, sibling], axis=1)
-            else:
-                raise Exception("invalid operation")
+        # init epoch counter for the queue
+        local_init_op = tf.local_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(local_init_op)
 
-            save(dst, dst_path)
-
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(coord=coord)
+            for i in range(a.workers):
+                t = threading.Thread(target=worker, args=(coord,))
+                t.start()
+                threads.append(t)
+            
+            try:
+                coord.join(threads)
+            except KeyboardInterrupt:
+                coord.request_stop()
+                coord.join(threads)
 
 main()
