@@ -9,17 +9,15 @@ This is a simple python server that serves models exported from `pix2pix.py --mo
 Using the [pix2pix-tensorflow Docker image](https://hub.docker.com/r/affinelayer/pix2pix-tensorflow/):
 
 ```sh
-alias p2p-run="sudo docker run --rm --volume /:/host --workdir /host\$PWD --env PYTHONUNBUFFERED=x --env CUDA_CACHE_PATH=/host/tmp/cuda-cache --env HOME=/host\$HOME --publish 8000:8000 affinelayer/pix2pix-tensorflow"
-
 # export a model to upload
-p2p-run python export-example-model.py --output_dir models/example
+python ../tools/dockrun.py export-example-model.py --output_dir models/example
 # process an image with the model using local tensorflow
-p2p-run python process-local.py \
+python ../tools/dockrun.py  process-local.py \
     --model_dir models/example \
     --input_file static/facades-input.png \
     --output_file output.png
 # run local server
-p2p-run python serve.py --local_models_dir models
+python ../tools/dockrun.py --port 8000 serve.py --local_models_dir models
 # test the local server
 curl -X POST http://localhost:8000/example \
     --data-binary @static/facades-input.png >! output.png
@@ -39,13 +37,13 @@ For this you'll want to generate a service account JSON file from https://consol
 
 ```sh
 # upload model to google cloud ml
-p2p-run python upload-model.py \
+python ../tools/dockrun.py upload-model.py \
     --bucket your-models-bucket-name-here \
     --model_name example \
     --model_dir models/example \
     --credentials service-account.json
 # process an image with the model using google cloud ml
-p2p-run python process-cloud.py \
+python ../tools/dockrun.py process-cloud.py \
     --model example \
     --input_file static/facades-input.png \
     --output_file output.png \

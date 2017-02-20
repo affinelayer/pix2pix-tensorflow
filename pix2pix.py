@@ -118,7 +118,7 @@ def batchnorm(input):
         input = tf.identity(input)
 
         channels = input.get_shape()[3]
-        offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer)
+        offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
         scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
         mean, variance = tf.nn.moments(input, axes=[0, 1, 2], keep_dims=False)
         variance_epsilon = 1e-5
@@ -372,7 +372,7 @@ def create_generator(generator_inputs, generator_outputs_channels):
                 # since it is directly connected to the skip_layer
                 input = layers[-1]
             else:
-                input = tf.concat_v2([layers[-1], layers[skip_layer]], axis=3)
+                input = tf.concat([layers[-1], layers[skip_layer]], axis=3)
 
             rectified = tf.nn.relu(input)
             # [batch, in_height, in_width, in_channels] => [batch, in_height*2, in_width*2, out_channels]
@@ -386,7 +386,7 @@ def create_generator(generator_inputs, generator_outputs_channels):
 
     # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
     with tf.variable_scope("decoder_1"):
-        input = tf.concat_v2([layers[-1], layers[0]], axis=3)
+        input = tf.concat([layers[-1], layers[0]], axis=3)
         rectified = tf.nn.relu(input)
         output = deconv(rectified, generator_outputs_channels)
         output = tf.tanh(output)
@@ -401,7 +401,7 @@ def create_model(inputs, targets):
         layers = []
 
         # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
-        input = tf.concat_v2([discrim_inputs, discrim_targets], axis=3)
+        input = tf.concat([discrim_inputs, discrim_targets], axis=3)
 
         # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
         with tf.variable_scope("layer_1"):
@@ -538,8 +538,8 @@ def append_index(filesets, step=False):
 
 
 def main():
-    if tf.__version__ != "0.12.1":
-        raise Exception("Tensorflow version 0.12.1 required")
+    if tf.__version__ != "1.0.0":
+        raise Exception("Tensorflow version 1.0.0 required")
 
     if a.seed is None:
         a.seed = random.randint(0, 2**31 - 1)

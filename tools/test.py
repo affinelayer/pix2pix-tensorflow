@@ -38,7 +38,7 @@ def main():
     else:
         # training
         for direction in ["AtoB", "BtoA"]:
-            for dataset in ["facades", "maps"]:
+            for dataset in ["facades"]:
                 name = dataset + "_" + direction
                 run("python pix2pix.py --mode train --output_dir test/%s_train --max_steps 1 --input_dir /data/official/%s/train --which_direction %s --seed 0" % (name, dataset, direction))
                 run("python pix2pix.py --mode test --output_dir test/%s_test --max_steps 1 --input_dir /data/official/%s/val --seed 0 --checkpoint test/%s_train" % (name, dataset, name))
@@ -50,17 +50,16 @@ def main():
             run("python pix2pix.py --mode test --output_dir test/%s_test --max_steps 1 --input_dir /data/%s/val --seed 0 --checkpoint test/%s_train" % (name, dataset, name))
 
         # using pretrained model
-        for dataset, direction in [("facades", "BtoA"), ("edges2shoes", "AtoB"), ("maps", "AtoB"), ("maps", "BtoA"), ("cityscapes", "AtoB"), ("cityscapes", "BtoA"), ("edges2handbags", "AtoB")]:
+        for dataset, direction in [("facades", "BtoA")]:
             name = dataset + "_" + direction
             run("python pix2pix.py --mode test --output_dir test/%s_pretrained_test --input_dir /data/official/%s/val --max_steps 100 --which_direction %s --seed 0 --checkpoint /data/pretrained/%s" % (name, dataset, direction, name))
             run("python pix2pix.py --mode export --output_dir test/%s_pretrained_export --checkpoint /data/pretrained/%s" % (name, name))
 
         # test python3
-        run("python pix2pix.py --mode train --output_dir test/py3_facades_AtoB_train --max_steps 1 --input_dir /data/official/facades/train --which_direction AtoB --seed 0", image="tensorflow/tensorflow:0.12.1-gpu-py3")
-        run("python pix2pix.py --mode test --output_dir test/py3_facades_AtoB_test --max_steps 1 --input_dir /data/official/facades/val --seed 0 --checkpoint test/py3_facades_AtoB_train", image="tensorflow/tensorflow:0.12.1-gpu-py3")
+        run("python pix2pix.py --mode train --output_dir test/py3_facades_AtoB_train --max_steps 1 --input_dir /data/official/facades/train --which_direction AtoB --seed 0", image="tensorflow/tensorflow:1.0.0-gpu-py3")
+        run("python pix2pix.py --mode test --output_dir test/py3_facades_AtoB_test --max_steps 1 --input_dir /data/official/facades/val --seed 0 --checkpoint test/py3_facades_AtoB_train", image="tensorflow/tensorflow:1.0.0-gpu-py3")
 
     print("elapsed", int(time.time() - start))
-    # short: 2521 (mac)
     # long: about 9 hours (linux)
 
 

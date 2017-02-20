@@ -119,4 +119,4 @@ RUN pip install \
     rsa==3.4.2 \
     six==1.10.0 \
     uritemplate==3.0.0 \
-    https://storage.googleapis.com/tensorflow/linux/gpu/tensorflow_gpu-0.12.1-cp27-none-linux_x86_64.whl
+    tensorflow-gpu==1.0.0

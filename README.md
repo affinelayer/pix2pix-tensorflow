@@ -13,7 +13,7 @@ This port is based directly on the torch implementation, and not on an existing 
 ## Setup
 
 ### Prerequisites
-- Tensorflow 0.12.1
+- Tensorflow 1.0.0
 
 ### Recommended
 - Linux with Tensorflow GPU edition + cuDNN
@@ -47,24 +47,14 @@ If you have Docker installed, you can use the provided Docker image to run pix2p
 
 ```sh
 # train the model
-sudo nvidia-docker run \
-  --volume $PWD:/prj \
-  --workdir /prj \
-  --env PYTHONUNBUFFERED=x \
-  affinelayer/pix2pix-tensorflow \
-    python pix2pix.py \
+python tools/dockrun.py pix2pix.py \
       --mode train \
       --output_dir facades_train \
       --max_epochs 200 \
       --input_dir facades/train \
       --which_direction BtoA
 # test the model
-sudo nvidia-docker run \
-  --volume $PWD:/prj \
-  --workdir /prj \
-  --env PYTHONUNBUFFERED=x \
-  affinelayer/pix2pix-tensorflow \
-    python pix2pix.py \
+python tools/dockrun.py pix2pix.py \
       --mode test \
       --output_dir facades_test \
       --input_dir facades/val \
@@ -81,7 +71,7 @@ For example:
 
 <img src="docs/418.png" width="256px"/>
 
-Some datasets have been made available by the authors of the pix2pix paper.  To download those datasets, use the included script `tools/download-dataset.py`.  There are also links to pre-trained models alongside each dataset:
+Some datasets have been made available by the authors of the pix2pix paper.  To download those datasets, use the included script `tools/download-dataset.py`.  There are also links to pre-trained models alongside each dataset, note that these pre-trained models require the Tensorflow 0.12.1 version of pix2pix.py since they have not been regenerated with the 1.0.0 release:
 
 | dataset | example |
 | --- | --- |
