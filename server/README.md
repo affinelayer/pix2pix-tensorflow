@@ -19,8 +19,7 @@ python ../tools/dockrun.py  process-local.py \
 # run local server
 python ../tools/dockrun.py --port 8000 serve.py --local_models_dir models
 # test the local server
-curl -X POST http://localhost:8000/example \
-    --data-binary @static/facades-input.png >! output.png
+python ../tools/dockrun.py process-remote.py --input_file static/facades-input.png --url http://localhost:8000/example --output_file output.png
 ```
 
 If you open [http://localhost:8000/](http://localhost:8000/) in a browser, you should see an interactive demo, though this expects the server to be hosting the exported models available here:
