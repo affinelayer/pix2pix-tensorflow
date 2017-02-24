@@ -2,7 +2,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import urllib
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen # python 3
 import argparse
 
 
@@ -17,7 +20,7 @@ def main():
     with open(a.input_file) as f:
         input_data = f.read()
 
-    output_data = urllib.urlopen(a.url, data=input_data).read()
+    output_data = urlopen(a.url, data=input_data).read()
 
     with open(a.output_file, "wb") as f:
         f.write(output_data)

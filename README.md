@@ -47,14 +47,14 @@ If you have Docker installed, you can use the provided Docker image to run pix2p
 
 ```sh
 # train the model
-python tools/dockrun.py pix2pix.py \
+python tools/dockrun.py python pix2pix.py \
       --mode train \
       --output_dir facades_train \
       --max_epochs 200 \
       --input_dir facades/train \
       --which_direction BtoA
 # test the model
-python tools/dockrun.py pix2pix.py \
+python tools/dockrun.py python pix2pix.py \
       --mode test \
       --output_dir facades_test \
       --input_dir facades/val \

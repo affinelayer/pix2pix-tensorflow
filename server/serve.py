@@ -10,6 +10,9 @@ import base64
 import os
 import json
 import traceback
+import threading
+import multiprocessing
+
 
 # https://github.com/Nakiami/MultithreadedSimpleHTTPServer/blob/master/MultithreadedSimpleHTTPServer.py
 try:
@@ -32,7 +35,7 @@ parser.add_argument("--credentials", help="JSON credentials for a Google Cloud P
 parser.add_argument("--project", help="Google Cloud Project to use, only necessary if using default application credentials")
 a = parser.parse_args()
 
-
+jobs = threading.Semaphore(multiprocessing.cpu_count() * 2)
 models = {}
 local = a.local_models_dir is not None
 ml = None
@@ -41,6 +44,12 @@ project_id = None
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/health":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write("OK")
+            return
+
         if not os.path.exists("static"):
             self.send_response(404)
             return
@@ -83,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
-    def do_POST(self): 
+    def do_POST(self):
         start = time.time()
 
         status = 200
@@ -103,7 +112,14 @@ class Handler(BaseHTTPRequestHandler):
 
             if local:
                 m = models[name]
-                output_b64data = m["sess"].run(m["output"], feed_dict={m["input"]: [input_b64data]})[0]
+                if not jobs.acquire(blocking=False):
+                    self.send_response(429)
+                    return
+
+                try:
+                    output_b64data = m["sess"].run(m["output"], feed_dict={m["input"]: [input_b64data]})[0]
+                finally:
+                    jobs.release()
             else:
                 input_instance = dict(input=input_b64data, key="0")
                 request = ml.projects().predict(name="projects/" + project_id + "/models/" + name, body={"instances": [input_instance]})

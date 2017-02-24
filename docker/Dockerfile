@@ -35,7 +35,7 @@ ENV CAFFE_ROOT=/opt/caffe
 
 RUN mkdir -p $CAFFE_ROOT && \
     cd $CAFFE_ROOT && \
-    git clone --depth 1 https://github.com/s9xie/hed . && \
+    git clone https://github.com/s9xie/hed . && \
     git checkout 9e74dd710773d8d8a469ad905c76f4a7fa08f945 && \
     pip install --upgrade pip && \
     cd python && for req in $(cat requirements.txt) pydot; do pip install $req; done && cd .. && \
@@ -120,3 +120,7 @@ RUN pip install \
     six==1.10.0 \
     uritemplate==3.0.0 \
     tensorflow-gpu==1.0.0
+
+RUN curl -O https://releases.hashicorp.com/terraform/0.8.7/terraform_0.8.7_linux_amd64.zip && \
+    unzip terraform_0.8.7_linux_amd64.zip -d /usr/local/bin && \
+    rm terraform_0.8.7_linux_amd64.zip

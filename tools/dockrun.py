@@ -101,12 +101,16 @@ def main():
         "PYTHONUNBUFFERED=x",
         "--env",
         "CUDA_CACHE_PATH=/host/tmp/cuda-cache",
+        "--env",
+        "GOOGLE_PROJECT=" + os.environ.get("GOOGLE_PROJECT", ""),
+        "--env",
+        "GOOGLE_CREDENTIALS=" + os.environ.get("GOOGLE_CREDENTIALS", ""), 
     ]
 
     if a.port is not None:
         docker_args += ["--publish", "%d:%d" % (a.port, a.port)]
 
-    args = [docker_path, "run"] + docker_args + ["affinelayer/pix2pix-tensorflow", "python"] + cmd
+    args = [docker_path, "run"] + docker_args + ["affinelayer/pix2pix-tensorflow"] + cmd
 
     if not os.access("/var/run/docker.sock", os.R_OK):
         args = ["sudo"] + args

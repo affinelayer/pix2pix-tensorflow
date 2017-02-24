@@ -24,8 +24,6 @@ parser.add_argument("--max_steps", type=int, help="number of training steps (0 t
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
-# to get tracing working on GPU, LD_LIBRARY_PATH may need to be modified:
-# LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/extras/CUPTI/lib64
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
 parser.add_argument("--display_freq", type=int, default=0, help="write current training images every display_freq steps")
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
