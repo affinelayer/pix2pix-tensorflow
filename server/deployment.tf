@@ -4,9 +4,11 @@ provider "google" {
 
 variable "GOOGLE_PROJECT" {}
 
+# cluster
+
 resource "google_compute_instance_template" "pix2pix" {
   name_prefix  = "pix2pix-template-"
-  machine_type = "n1-highcpu-4"
+  machine_type = "n1-highcpu-2"
 
   tags           = ["http-server"]
   can_ip_forward = false
@@ -47,7 +49,7 @@ write_files:
     [Service]
     Environment="HOME=/home/pix2pix"
     ExecStartPre=/usr/share/google/dockercfg_update.sh
-    ExecStart=/usr/bin/docker run --log-driver=gcplogs --log-opt gcp-log-cmd=true --restart always -u 2000 --publish 80:8080 --name=pix2pix us.gcr.io/${var.GOOGLE_PROJECT}/pix2pix-server:v1
+    ExecStart=/usr/bin/docker run --log-driver=gcplogs --restart always -u 2000 --publish 80:8080 --name=pix2pix us.gcr.io/${var.GOOGLE_PROJECT}/pix2pix-server:v3 python -u serve.py --port 8080 --local_models_dir models --cloud_model_names facades_BtoA,edges2cats_AtoB,edges2shoes_AtoB,edges2handbags_AtoB
     ExecStop=/usr/bin/docker stop pix2pix
     ExecStopPost=/usr/bin/docker rm pix2pix
 
@@ -59,7 +61,7 @@ EOF
   }
 
   service_account {
-    scopes = ["https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/devstorage.read_only"]
+    scopes = ["https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/devstorage.read_only", "https://www.googleapis.com/auth/cloud-platform"]
   }
 
   lifecycle {
@@ -114,12 +116,78 @@ resource "google_compute_autoscaler" "pix2pix" {
   target = "${google_compute_instance_group_manager.pix2pix.self_link}"
 
   autoscaling_policy = {
-    max_replicas    = 16
-    min_replicas    = 1
+    max_replicas    = 0
+    min_replicas    = 0
     cooldown_period = 60
 
     cpu_utilization {
       target = 0.9
     }
   }
+}
+
+# singleton
+
+resource "google_compute_instance" "pix2pix-singleton" {
+  name         = "pix2pix-singleton"
+  machine_type = "g1-small"
+  zone         = "us-central1-c"
+
+  tags           = ["http-server"]
+  can_ip_forward = false
+
+  scheduling {
+    automatic_restart   = true
+    on_host_maintenance = "MIGRATE"
+  }
+
+  disk {
+    image = "cos-cloud/cos-stable"
+  }
+
+  network_interface {
+    network = "default"
+
+    access_config {
+      nat_ip = "${google_compute_address.pix2pix-singleton.address}"
+    }
+  }
+
+  metadata {
+    user-data = <<EOF
+#cloud-config
+
+users:
+- name: pix2pix
+  uid: 2000
+
+write_files:
+- path: /etc/systemd/system/pix2pix.service
+  permissions: 0644
+  owner: root
+  content: |
+    [Unit]
+    Description=Run pix2pix
+
+    [Service]
+    Environment="HOME=/home/pix2pix"
+    ExecStartPre=/usr/share/google/dockercfg_update.sh
+    ExecStart=/usr/bin/docker run --log-driver=gcplogs --restart always -u 2000 --publish 80:8080 --name=pix2pix us.gcr.io/${var.GOOGLE_PROJECT}/pix2pix-server python -u serve.py --port 8080 --cloud_model_names facades_BtoA,edges2cats_AtoB,edges2shoes_AtoB,edges2handbags_AtoB
+    ExecStop=/usr/bin/docker stop pix2pix
+    ExecStopPost=/usr/bin/docker rm pix2pix
+
+runcmd:
+- iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+- systemctl daemon-reload
+- systemctl start pix2pix.service
+EOF
+  }
+
+  service_account {
+    scopes = ["https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/devstorage.read_only", "https://www.googleapis.com/auth/cloud-platform"]
+  }
+}
+
+resource "google_compute_address" "pix2pix-singleton" {
+  name = "pix2pix-singleton"
 }

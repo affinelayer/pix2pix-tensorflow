@@ -12,6 +12,7 @@ import json
 import traceback
 import threading
 import multiprocessing
+import random
 
 
 # https://github.com/Nakiami/MultithreadedSimpleHTTPServer/blob/master/MultithreadedSimpleHTTPServer.py
@@ -37,9 +38,45 @@ a = parser.parse_args()
 
 jobs = threading.Semaphore(multiprocessing.cpu_count() * 2)
 models = {}
-local = a.local_models_dir is not None
 ml = None
 project_id = None
+build_cloud_client = None
+
+
+class RateCounter(object):
+    def __init__(self, window_us, granularity=1000):
+        self.granularity = granularity
+        self.width_us = int(window_us) // self.granularity
+        self.buckets = [0] * self.granularity
+        self.updated = 0
+        self.lock = threading.RLock()
+
+    def incr(self, amt=1):
+        with self.lock:
+            now_us = int(time.time() * 1e6)
+            now = now_us // self.width_us
+
+            if now > self.updated:
+                # need to clear any buckets between the update time and now
+                if now - self.updated > self.granularity:
+                    self.buckets = [0] * self.granularity
+                    self.updated = now
+                else:
+                    while self.updated <= now:
+                        self.updated += 1
+                        self.buckets[self.updated % self.granularity] = 0
+
+            self.buckets[now % self.granularity] += amt
+    
+    def value(self):
+        with self.lock:
+            # update any expired buckets
+            self.incr(amt=0)
+            return sum(self.buckets)
+
+
+cloud_requests = RateCounter(5 * 60 * 1e6)
+cloud_accepts = RateCounter(5 * 60 * 1e6)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -97,12 +134,17 @@ class Handler(BaseHTTPRequestHandler):
 
         status = 200
         headers = {}
+        if "origin" in self.headers:
+            headers = {"access-control-allow-origin": "*"}
         body = ""
 
         try:
             name = self.path[1:]
+
             if name not in models:
                 raise Exception("invalid model")
+
+            variants = models[name]  # "cloud" and "local" are the two possible variants
 
             content_len = int(self.headers.getheader("content-length", 0))
             if content_len > 1 * 1024 * 1024:
@@ -110,22 +152,38 @@ class Handler(BaseHTTPRequestHandler):
             input_data = self.rfile.read(content_len)
             input_b64data = base64.urlsafe_b64encode(input_data)
 
-            if local:
-                m = models[name]
-                if not jobs.acquire(blocking=False):
-                    self.send_response(429)
-                    return
+            requests = cloud_requests.value()
+            accepts = cloud_accepts.value()
+            cloud_reject_prob = max(0, (requests - 1.1 * accepts) / (requests + 1))
+            print("requests=%d accepts=%d cloud_reject_prob=%f" % (requests, accepts, cloud_reject_prob))
 
+            output_b64data = None
+            if "cloud" in variants and random.random() > cloud_reject_prob:
+                print("using cloud")
+                input_instance = dict(input=input_b64data, key="0")
+                # the client does not seem to be threadsafe, so make one for each request
+                # also the cache is broken by oauth2client 4.0.0, so use a memory cache
+                request = build_cloud_client().projects().predict(name="projects/" + project_id + "/models/" + name, body={"instances": [input_instance]})
+                try:
+                    cloud_requests.incr()
+                    response = request.execute()
+                    output_instance = response["predictions"][0]
+                    output_b64data = output_instance["output"].encode("ascii")
+                    cloud_accepts.incr()
+                except Exception as e:
+                    print("exception while running cloud model", traceback.format_exc())
+                    print("falling back to local")
+            
+            if output_b64data is None and "local" in variants and jobs.acquire(blocking=False):
+                print("using local")
+                m = variants["local"]
                 try:
                     output_b64data = m["sess"].run(m["output"], feed_dict={m["input"]: [input_b64data]})[0]
                 finally:
                     jobs.release()
-            else:
-                input_instance = dict(input=input_b64data, key="0")
-                request = ml.projects().predict(name="projects/" + project_id + "/models/" + name, body={"instances": [input_instance]})
-                response = request.execute()
-                output_instance = response["predictions"][0]
-                output_b64data = output_instance["output"].encode("ascii")
+            
+            if output_b64data is None:
+                raise Exception("too many requests")
 
             # add any missing padding
             output_b64data += "=" * (-len(output_b64data) % 4)
@@ -138,8 +196,6 @@ class Handler(BaseHTTPRequestHandler):
             body = "server error"
 
         self.send_response(status)
-        if "origin" in self.headers:
-            self.send_header("access-control-allow-origin", "*")
         for key, value in headers.iteritems():
             self.send_header(key, value)
         self.end_headers()
@@ -153,6 +209,9 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main():
+    if a.local_models_dir is None and a.cloud_model_names is None:
+        raise Exception("must specify --local_models_dir or --cloud_model_names")
+        
     if a.local_models_dir is not None:
         import tensorflow as tf
         for name in os.listdir(a.local_models_dir):
@@ -171,16 +230,25 @@ def main():
                 input = graph.get_tensor_by_name(input_vars["input"])
                 output = graph.get_tensor_by_name(output_vars["output"])
 
-                models[name] = dict(
+                if name not in models:
+                    models[name] = {}
+
+                models[name]["local"] = dict(
                     sess=sess,
                     input=input,
                     output=output,
                 )
-    elif a.cloud_model_names is not None:
+
+    if a.cloud_model_names is not None:
         import oauth2client.service_account
         import googleapiclient.discovery
+        import googleapiclient.discovery_cache.base
+        import httplib2
+
         for name in a.cloud_model_names.split(","):
-            models[name] = None
+            if name not in models:
+                models[name] = {}
+            models[name]["cloud"] = None
 
         scopes = ["https://www.googleapis.com/auth/cloud-platform"]
         global project_id
@@ -197,10 +265,22 @@ def main():
             with open(a.credentials) as f:
                 project_id = json.loads(f.read())["project_id"]
 
-        global ml
-        ml = googleapiclient.discovery.build("ml", "v1beta1", credentials=credentials)
-    else:
-        raise Exception("must specify --local_models_dir or --cloud_model_names")
+        # due to what appears to be a bug, we cannot get the discovery document when specifying an http client
+        # so grab it first, then the second build should use the cache
+        class Cache(googleapiclient.discovery_cache.base.Cache):
+            def __init__(self):
+                self.cache = {}
+
+            def get(self, url):
+                return self.cache.get(url)
+
+            def set(self, url, content):
+                self.cache[url] = content
+
+        cache = Cache()
+        googleapiclient.discovery.build("ml", "v1beta1", credentials=credentials, cache=cache)
+        global build_cloud_client
+        build_cloud_client = lambda: googleapiclient.discovery.build("ml", "v1beta1", http=credentials.authorize(httplib2.Http(timeout=10)), cache=cache)
 
     print("listening on %s:%s" % (a.addr, a.port))
     ThreadedHTTPServer((a.addr, a.port), Handler).serve_forever()

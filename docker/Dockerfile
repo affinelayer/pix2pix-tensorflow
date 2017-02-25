@@ -1,6 +1,3 @@
-# docker build --rm --tag affinelayer/pix2pix-tensorflow .
-# docker push affinelayer/pix2pix-tensorflow
-
 FROM nvidia/cuda:8.0-cudnn5-devel-ubuntu16.04
 
 WORKDIR /root

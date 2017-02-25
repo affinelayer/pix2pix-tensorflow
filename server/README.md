@@ -61,16 +61,20 @@ export GOOGLE_PROJECT=<project name>
 export GOOGLE_CREDENTIALS="$(cat <path to service-account.json>)"
 # build image
 # make sure models are in a directory called "models" in the current directory
-sudo docker build --rm --tag us.gcr.io/$GOOGLE_PROJECT/pix2pix-server:v1 .
+sudo docker build --rm --tag us.gcr.io/$GOOGLE_PROJECT/pix2pix-server .
 # test image locally
-sudo docker run --publish 8080:8080 --rm --name server us.gcr.io/$GOOGLE_PROJECT/pix2pix-server:v1
+sudo docker run --publish 8080:8080 --rm --name server us.gcr.io/$GOOGLE_PROJECT/pix2pix-server python -u serve.py \
+    --port 8080 \
+    --local_models_dir models
 python process-remote.py \
     --input_file static/facades-input.png \
     --url http://localhost:8080/example \
     --output_file output.png
 # publish image to private google container repository
-gcloud docker -- push us.gcr.io/$GOOGLE_PROJECT/pix2pix-server:v1
+gcloud docker -- push us.gcr.io/$GOOGLE_PROJECT/pix2pix-server
 # setup server
-python ../tools/dockrun.py terraform plan -var "GOOGLE_PROJECT=$GOOGLE_PROJECT"
-python ../tools/dockrun.py terraform apply -var "GOOGLE_PROJECT=$GOOGLE_PROJECT"
+# need to change the launch arguments for google_compute_instance.pix2pix-singleton
+# to use local models instead of cloud models if desired
+python ../tools/dockrun.py terraform plan -var "GOOGLE_PROJECT=$GOOGLE_PROJECT" -target google_compute_instance.pix2pix-singleton
+python ../tools/dockrun.py terraform apply -var "GOOGLE_PROJECT=$GOOGLE_PROJECT" -target google_compute_instance.pix2pix-singleton
 ```

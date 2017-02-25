@@ -30,8 +30,6 @@ function main() {
     var editor = new Editor(config)
     var elem = document.getElementById(config.name)
     elem.appendChild(editor.view.ctx.canvas)
-    editor.view.ctx.canvas.onselectstart = function(e) { console.log("selectstart2"); 
-    e.preventDefault(); return false; }
     editors.push(editor)
   }
 
@@ -317,7 +315,6 @@ render: function() {
               request_in_progress = false
               update()
               if (xhr.status == 200) {
-                console.log("request complete", xhr.status)
                 var output_bin = new Uint8Array(xhr.response)
                 var output_b64 = bin_to_b64(output_bin)
                 var output = new Image()

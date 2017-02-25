@@ -4,13 +4,12 @@ RUN apt-get update
 
 RUN apt-get install -y --no-install-recommends \
         python-dev \
-        python-numpy \
         python-pip \
         python-setuptools \
-        python-scipy \
         python-wheel
 
 RUN pip install \
+    scipy==0.18.1 \
     appdirs==1.4.0 \
     funcsigs==1.0.2 \
     google-api-python-client==1.6.2 \
@@ -39,4 +38,3 @@ COPY models models
 COPY static static
 COPY serve.py serve.py
 EXPOSE 8080
-ENTRYPOINT ["/usr/bin/python", "-u", "serve.py", "--port", "8080", "--local_models", "models"]
