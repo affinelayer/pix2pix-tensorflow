@@ -137,7 +137,7 @@ python tools/process.py \
   --output_dir photos/resized
 ```
 
-No other processing is required, the colorzation mode (see Training section below) uses single images instead of image pairs.
+No other processing is required, the colorization mode (see Training section below) uses single images instead of image pairs.
 
 ## Training
 
@@ -167,6 +167,17 @@ python pix2pix.py \
 ```
 
 In this mode, image A is the black and white image (lightness only), and image B contains the color channels of that image (no lightness information).
+
+### Exporting the model
+
+You can export the model to be served or uploaded:
+
+```sh
+python pix2pix.py \
+  --mode export \
+  --output_dir facades_export \
+  --checkpoint facades_train
+```
 
 ### Tips
 
