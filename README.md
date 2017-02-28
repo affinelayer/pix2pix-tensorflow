@@ -137,7 +137,7 @@ python tools/process.py \
   --output_dir photos/resized
 ```
 
-No other processing is required, the colorzation mode (see Training section below) uses single images instead of image pairs.
+No other processing is required, the colorization mode (see Training section below) uses single images instead of image pairs.
 
 ## Training
 
@@ -196,6 +196,17 @@ The testing mode will load some of the configuration options from the checkpoint
 The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets:
 
 <img src="docs/test-html.png" width="300px"/>
+
+## Exporting
+
+You can export the model to be served or uploaded with `--mode export`. As with testing, you should specify the checkpoint to use with `--checkpoint`.
+
+```sh
+python pix2pix.py \
+  --mode export \
+  --output_dir facades_export \
+  --checkpoint facades_train
+```
 
 ## Code Validation
 
