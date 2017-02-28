@@ -168,17 +168,6 @@ python pix2pix.py \
 
 In this mode, image A is the black and white image (lightness only), and image B contains the color channels of that image (no lightness information).
 
-### Exporting the model
-
-You can export the model to be served or uploaded:
-
-```sh
-python pix2pix.py \
-  --mode export \
-  --output_dir facades_export \
-  --checkpoint facades_train
-```
-
 ### Tips
 
 You can look at the loss and computation graph using tensorboard:
@@ -207,6 +196,17 @@ The testing mode will load some of the configuration options from the checkpoint
 The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets:
 
 <img src="docs/test-html.png" width="300px"/>
+
+## Exporting
+
+You can export the model to be served or uploaded with `--mode export`. As with testing, you should specify the checkpoint to use with `--checkpoint`.
+
+```sh
+python pix2pix.py \
+  --mode export \
+  --output_dir facades_export \
+  --checkpoint facades_train
+```
 
 ## Code Validation
 
