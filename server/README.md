@@ -17,7 +17,7 @@ python ../tools/dockrun.py python process-local.py \
     --input_file static/facades-input.png \
     --output_file output.png
 # run local server
-python ../tools/dockrun.py python --port 8000 serve.py --local_models_dir models
+python ../tools/dockrun.py --port 8000 python serve.py --port 8000 --local_models_dir models
 # test the local server
 python process-remote.py \
     --input_file static/facades-input.png \
