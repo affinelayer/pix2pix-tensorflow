@@ -188,7 +188,10 @@ class Handler(BaseHTTPRequestHandler):
             # add any missing padding
             output_b64data += "=" * (-len(output_b64data) % 4)
             output_data = base64.urlsafe_b64decode(output_b64data)
-            headers["content-type"] = "image/png"
+            if output_data.startswith("\x89PNG"):
+                headers["content-type"] = "image/png"
+            else:
+                headers["content-type"] = "image/jpeg"
             body = output_data
         except Exception as e:
             print("exception", traceback.format_exc())

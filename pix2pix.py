@@ -42,6 +42,9 @@ parser.add_argument("--lr", type=float, default=0.0002, help="initial learning r
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
+
+# export options
+parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
 
 EPS = 1e-12
@@ -588,7 +591,12 @@ def main():
             batch_output = deprocess(create_generator(preprocess(batch_input), 3))
 
         output_image = tf.image.convert_image_dtype(batch_output, dtype=tf.uint8)[0]
-        output_data = tf.image.encode_png(output_image)
+        if a.output_filetype == "png":
+            output_data = tf.image.encode_png(output_image)
+        elif a.output_filetype == "jpeg":
+            output_data = tf.image.encode_jpeg(output_image, quality=80)
+        else:
+            raise Exception("invalid filetype")
         output = tf.convert_to_tensor([tf.encode_base64(output_data)])
 
         key = tf.placeholder(tf.string, shape=[1])

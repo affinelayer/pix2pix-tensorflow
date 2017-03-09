@@ -31,10 +31,9 @@ RUN pip install \
     rsa==3.4.2 \
     six==1.10.0 \
     uritemplate==3.0.0 \
-    tensorflow==0.12.1
+    tensorflow==1.0.0
 
 WORKDIR /server
 COPY models models
 COPY static static
 COPY serve.py serve.py
-EXPOSE 8080

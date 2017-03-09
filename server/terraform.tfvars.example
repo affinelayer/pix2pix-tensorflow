@@ -1,0 +1,5 @@
+google_project = "example"
+
+google_credentials_file = "service-account.json"
+
+server_image_version = "v1"

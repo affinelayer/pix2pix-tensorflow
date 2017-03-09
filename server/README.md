@@ -4,22 +4,33 @@ Host pix2pix-tensorflow models to be used with something like the [Image-to-Imag
 
 This is a simple python server that serves models exported from `pix2pix.py --mode export`.  It can serve local models or use [Cloud ML](https://cloud.google.com/ml/) to run the model.
 
-## Local
+## Exporting
+
+You can export a model to be served with `--mode export`. As with testing, you should specify the checkpoint to use with `--checkpoint`.
+
+```sh
+python ../pix2pix.py \
+  --mode export \
+  --output_dir models/facades \
+  --checkpoint ../facades_train
+```
+
+## Local Serving
 
 Using the [pix2pix-tensorflow Docker image](https://hub.docker.com/r/affinelayer/pix2pix-tensorflow/):
 
 ```sh
-# export a model to upload
-python ../tools/dockrun.py python export-example-model.py --output_dir models/example
+# export a model to upload (if you did not export one above)
+python ../tools/dockrun.py python tools/export-example-model.py --output_dir models/example
 # process an image with the model using local tensorflow
-python ../tools/dockrun.py python process-local.py \
+python ../tools/dockrun.py python tools/process-local.py \
     --model_dir models/example \
     --input_file static/facades-input.png \
     --output_file output.png
 # run local server
 python ../tools/dockrun.py --port 8000 python serve.py --port 8000 --local_models_dir models
 # test the local server
-python process-remote.py \
+python tools/process-remote.py \
     --input_file static/facades-input.png \
     --url http://localhost:8000/example \
     --output_file output.png
@@ -33,32 +44,31 @@ If you open [http://localhost:8000/](http://localhost:8000/) in a browser, you s
 
 Extract those to the models directory and restart the server to have it host the models.
 
-## Cloud ML
+## Cloud ML Serving
 
 For this you'll want to generate a service account JSON file from https://console.cloud.google.com/iam-admin/serviceaccounts/project (select "Furnish a new private key").  If you are already logged in with the gcloud SDK, the script will auto-detect credentials from that if you leave off the `--credentials` option.
 
 ```sh
 # upload model to google cloud ml
-python ../tools/dockrun.py python upload-model.py \
+python ../tools/dockrun.py python tools/upload-model.py \
     --bucket your-models-bucket-name-here \
     --model_name example \
     --model_dir models/example \
     --credentials service-account.json
 # process an image with the model using google cloud ml
-python ../tools/dockrun.py python process-cloud.py \
+python ../tools/dockrun.py python tools/process-cloud.py \
     --model example \
     --input_file static/facades-input.png \
     --output_file output.png \
     --credentials service-account.json
 ```
 
-## Google Cloud Platform
+## Running serve.py on Google Cloud Platform
 
 Assuming you have gcloud and docker setup:
 
 ```sh
 export GOOGLE_PROJECT=<project name>
-export GOOGLE_CREDENTIALS="$(cat <path to service-account.json>)"
 # build image
 # make sure models are in a directory called "models" in the current directory
 sudo docker build --rm --tag us.gcr.io/$GOOGLE_PROJECT/pix2pix-server .
@@ -66,15 +76,15 @@ sudo docker build --rm --tag us.gcr.io/$GOOGLE_PROJECT/pix2pix-server .
 sudo docker run --publish 8080:8080 --rm --name server us.gcr.io/$GOOGLE_PROJECT/pix2pix-server python -u serve.py \
     --port 8080 \
     --local_models_dir models
-python process-remote.py \
+python tools/process-remote.py \
     --input_file static/facades-input.png \
     --url http://localhost:8080/example \
     --output_file output.png
 # publish image to private google container repository
-gcloud docker -- push us.gcr.io/$GOOGLE_PROJECT/pix2pix-server
+python tools/upload-image.py --project $GOOGLE_PROJECT --version v1
 # setup server
-# need to change the launch arguments for google_compute_instance.pix2pix-singleton
-# to use local models instead of cloud models if desired
-python ../tools/dockrun.py terraform plan -var "GOOGLE_PROJECT=$GOOGLE_PROJECT" -target google_compute_instance.pix2pix-singleton
-python ../tools/dockrun.py terraform apply -var "GOOGLE_PROJECT=$GOOGLE_PROJECT" -target google_compute_instance.pix2pix-singleton
+cp terraform.tfvars.example terraform.tfvars
+# edit terraform.tfvars to put your cloud info in there
+python ../tools/dockrun.py terraform plan
+python ../tools/dockrun.py terraform apply
 ```

@@ -24,7 +24,7 @@ This port is based directly on the torch implementation, and not on an existing 
 # clone this repo
 git clone https://github.com/affinelayer/pix2pix-tensorflow.git
 cd pix2pix-tensorflow
-# download the CMP Facades dataset http://cmp.felk.cvut.cz/~tylecr1/facade/
+# download the CMP Facades dataset (generated from http://cmp.felk.cvut.cz/~tylecr1/facade/)
 python tools/download-dataset.py facades
 # train the model (this may take 1-8 hours depending on GPU, on CPU you will be waiting for a bit)
 python pix2pix.py \
@@ -196,17 +196,6 @@ The testing mode will load some of the configuration options from the checkpoint
 The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets:
 
 <img src="docs/test-html.png" width="300px"/>
-
-## Exporting
-
-You can export the model to be served or uploaded with `--mode export`. As with testing, you should specify the checkpoint to use with `--checkpoint`.
-
-```sh
-python pix2pix.py \
-  --mode export \
-  --output_dir facades_export \
-  --checkpoint facades_train
-```
 
 ## Code Validation
 
