@@ -30,13 +30,15 @@ socket.setdefaulttimeout(30)
 parser = argparse.ArgumentParser()
 parser.add_argument("--local_models_dir", help="directory containing local models to serve (either this or --cloud_model_names must be specified)")
 parser.add_argument("--cloud_model_names", help="comma separated list of cloud models to serve (either this or --local_models_dir must be specified)")
+parser.add_argument("--origin", help="allowed origin")
 parser.add_argument("--addr", default="", help="address to listen on")
 parser.add_argument("--port", default=8000, type=int, help="port to listen on")
+parser.add_argument("--wait", default=0, type=int, help="time to wait for each request")
 parser.add_argument("--credentials", help="JSON credentials for a Google Cloud Platform service account, generate this at https://console.cloud.google.com/iam-admin/serviceaccounts/project (select \"Furnish a new private key\")")
 parser.add_argument("--project", help="Google Cloud Project to use, only necessary if using default application credentials")
 a = parser.parse_args()
 
-jobs = threading.Semaphore(multiprocessing.cpu_count() * 2)
+jobs = threading.Semaphore(multiprocessing.cpu_count() * 4)
 models = {}
 ml = None
 project_id = None
@@ -67,7 +69,7 @@ class RateCounter(object):
                         self.buckets[self.updated % self.granularity] = 0
 
             self.buckets[now % self.granularity] += amt
-    
+
     def value(self):
         with self.lock:
             # update any expired buckets
@@ -75,6 +77,8 @@ class RateCounter(object):
             return sum(self.buckets)
 
 
+successes = RateCounter(1 * 60 * 1e6)
+failures = RateCounter(1 * 60 * 1e6)
 cloud_requests = RateCounter(5 * 60 * 1e6)
 cloud_accepts = RateCounter(5 * 60 * 1e6)
 
@@ -90,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.exists("static"):
             self.send_response(404)
             return
-            
+
         if self.path == "/":
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -120,7 +124,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         if "origin" in self.headers:
-            self.send_header("access-control-allow-origin", "*")
+            if a.origin is not None and self.headers["origin"] != a.origin:
+                print("invalid origin %s" % self.headers["origin"])
+                self.send_response(400)
+                return
+            self.send_header("access-control-allow-origin", self.headers["origin"])
 
         allow_headers = self.headers.get("access-control-request-headers", "*")
         self.send_header("access-control-allow-headers", allow_headers)
@@ -135,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
         status = 200
         headers = {}
         if "origin" in self.headers:
-            headers = {"access-control-allow-origin": "*"}
+            headers = {"access-control-allow-origin": self.headers["origin"]}
         body = ""
 
         try:
@@ -152,14 +160,13 @@ class Handler(BaseHTTPRequestHandler):
             input_data = self.rfile.read(content_len)
             input_b64data = base64.urlsafe_b64encode(input_data)
 
-            requests = cloud_requests.value()
-            accepts = cloud_accepts.value()
-            cloud_reject_prob = max(0, (requests - 1.1 * accepts) / (requests + 1))
-            print("requests=%d accepts=%d cloud_reject_prob=%f" % (requests, accepts, cloud_reject_prob))
+            time.sleep(a.wait)
+
+            cloud_reject_prob = max(0, (cloud_requests.value() - 1.1 * cloud_accepts.value()) / (cloud_requests.value() + 1))
+            # print("requests=%d accepts=%d cloud_reject_prob=%f" % (cloud_requests.value(), cloud_accepts.value(), cloud_reject_prob))
 
             output_b64data = None
             if "cloud" in variants and random.random() > cloud_reject_prob:
-                print("using cloud")
                 input_instance = dict(input=input_b64data, key="0")
                 # the client does not seem to be threadsafe, so make one for each request
                 # also the cache is broken by oauth2client 4.0.0, so use a memory cache
@@ -173,15 +180,14 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     print("exception while running cloud model", traceback.format_exc())
                     print("falling back to local")
-            
+
             if output_b64data is None and "local" in variants and jobs.acquire(blocking=False):
-                print("using local")
                 m = variants["local"]
                 try:
                     output_b64data = m["sess"].run(m["output"], feed_dict={m["input"]: [input_b64data]})[0]
                 finally:
                     jobs.release()
-            
+
             if output_b64data is None:
                 raise Exception("too many requests")
 
@@ -193,7 +199,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 headers["content-type"] = "image/jpeg"
             body = output_data
+            successes.incr()
         except Exception as e:
+            failures.incr()
             print("exception", traceback.format_exc())
             status = 500
             body = "server error"
@@ -204,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-        print("finished in %0.1fs" % (time.time() - start))
+        print("finished in %0.1fs successes=%d failures=%d" % (time.time() - start, successes.value(), failures.value()))
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -214,7 +222,7 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 def main():
     if a.local_models_dir is None and a.cloud_model_names is None:
         raise Exception("must specify --local_models_dir or --cloud_model_names")
-        
+
     if a.local_models_dir is not None:
         import tensorflow as tf
         for name in os.listdir(a.local_models_dir):

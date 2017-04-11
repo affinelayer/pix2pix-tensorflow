@@ -16,10 +16,10 @@ parser.add_argument("--output_file", required=True, help="output PNG image file"
 a = parser.parse_args()
 
 def main():
-    with open(a.input_file) as f:
+    with open(a.input_file, "rb") as f:
         input_data = f.read()
 
-    input_instance = dict(input=base64.urlsafe_b64encode(input_data), key="0")
+    input_instance = dict(input=base64.urlsafe_b64encode(input_data).decode("ascii"), key="0")
     input_instance = json.loads(json.dumps(input_instance))
 
     with tf.Session() as sess:
@@ -33,13 +33,13 @@ def main():
         input_value = np.array(input_instance["input"])
         output_value = sess.run(output, feed_dict={input: np.expand_dims(input_value, axis=0)})[0]
 
-    output_instance = dict(output=output_value, key="0")
+    output_instance = dict(output=output_value.decode("ascii"), key="0")
 
-    b64data = output_instance["output"].encode("ascii")
+    b64data = output_instance["output"]
     b64data += "=" * (-len(b64data) % 4)
-    output_data = base64.urlsafe_b64decode(b64data)
+    output_data = base64.urlsafe_b64decode(b64data.encode("ascii"))
 
-    with open(a.output_file, "w") as f:
+    with open(a.output_file, "wb") as f:
         f.write(output_data)
 
 main()

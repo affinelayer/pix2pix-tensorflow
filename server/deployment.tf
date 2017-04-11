@@ -53,7 +53,7 @@ write_files:
     [Service]
     Environment="HOME=/home/pix2pix"
     ExecStartPre=/usr/share/google/dockercfg_update.sh
-    ExecStart=/usr/bin/docker run --rm --log-driver=gcplogs -u 2000 --publish 80:8080 --name=pix2pix us.gcr.io/${var.google_project}/pix2pix-server:${var.server_image_version} python -u serve.py --port 8080 --local_models_dir models --cloud_model_names facades_BtoA,edges2cats_AtoB,edges2shoes_AtoB,edges2handbags_AtoB
+    ExecStart=/usr/bin/docker run --rm --log-driver=gcplogs -u 2000 --publish 80:8080 --name=pix2pix us.gcr.io/${var.google_project}/pix2pix-server:${var.server_image_version} python -u serve.py --port 8080 --local_models_dir models --origin https://affinelayer.com
     ExecStop=/usr/bin/docker stop pix2pix
     ExecStopPost=/usr/bin/docker rm pix2pix
     Restart=always
@@ -123,12 +123,12 @@ resource "google_compute_autoscaler" "cluster" {
   target = "${google_compute_instance_group_manager.cluster.self_link}"
 
   autoscaling_policy = {
-    max_replicas    = 16
+    max_replicas    = 8
     min_replicas    = 1
     cooldown_period = 60
 
     cpu_utilization {
-      target = 0.9
+      target = 0.7
     }
   }
 }
