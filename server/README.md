@@ -88,3 +88,107 @@ cp terraform.tfvars.example terraform.tfvars
 python ../tools/dockrun.py terraform plan
 python ../tools/dockrun.py terraform apply
 ```
+
+## Full training + exporting + hosting commands
+
+Tested with Python 3.6, Tensorflow 1.0.0, Docker, gcloud, and Terraform (https://www.terraform.io/downloads.html)
+
+```sh
+git clone https://github.com/affinelayer/pix2pix-tensorflow.git
+cd pix2pix-tensorflow
+
+# get some images (only 2 for testing)
+mkdir source
+curl -o source/cat1.jpg https://farm5.staticflickr.com/4032/4394955222_eea73818d9_o.jpg
+curl -o source/cat2.jpg http://wallpapercave.com/wp/ePMeSmp.jpg
+
+# resize source images
+python tools/process.py \
+  --input_dir source \
+  --operation resize \
+  --output_dir resized
+
+# create edges from resized images (uses docker container since compiling the dependencies is annoying)
+python tools/dockrun.py python tools/process.py \
+  --input_dir resized \
+  --operation edges \
+  --output_dir edges
+
+# combine resized with edges
+python tools/process.py \
+  --input_dir edges \
+  --b_dir resized \
+  --operation combine \
+  --output_dir combined
+
+# train on images (only 1 epoch for testing)
+python pix2pix.py \
+  --mode train \
+  --output_dir train \
+  --max_epochs 1 \
+  --input_dir combined \
+  --which_direction AtoB
+
+# export model (creates a version of the model that works with the server in server/serve.py as well as google hosted tensorflow)
+python pix2pix.py \
+  --mode export \
+  --output_dir server/models/edges2cats_AtoB \
+  --checkpoint train
+
+# process image locally using exported model
+python server/tools/process-local.py \
+    --model_dir server/models/edges2cats_AtoB \
+    --input_file edges/cat1.png \
+    --output_file output.png
+
+# serve model locally
+cd server
+python serve.py --port 8000 --local_models_dir models
+
+# open http://localhost:8000 in a browser, and scroll to the bottom, you should be able to process an edges2cat image and get a bunch of noise as output
+
+# serve model remotely
+
+export GOOGLE_PROJECT=<project name>
+
+# build image
+# make sure models are in a directory called "models" in the current directory
+docker build --rm --tag us.gcr.io/$GOOGLE_PROJECT/pix2pix-server .
+
+# test image locally
+docker run --publish 8000:8000 --rm --name server us.gcr.io/$GOOGLE_PROJECT/pix2pix-server python -u serve.py \
+    --port 8000 \
+    --local_models_dir models
+
+# run this while the above server is running
+python tools/process-remote.py \
+    --input_file static/edges2cats-input.png \
+    --url http://localhost:8000/edges2cats_AtoB \
+    --output_file output.png
+
+# publish image to private google container repository
+python tools/upload-image.py --project $GOOGLE_PROJECT --version v1
+
+# create a google cloud server
+cp terraform.tfvars.example terraform.tfvars
+# edit terraform.tfvars to put your cloud info in there
+# get the service-account.json from the google cloud console
+# make sure GCE is enabled on your account as well
+python terraform plan
+python terraform apply
+
+# get name of server
+gcloud compute instance-groups list-instances pix2pix-manager
+# ssh to server
+gcloud compute ssh <name of instance here>
+# look at the logs (can take awhile to load docker image)
+sudo journalctl -f -u pix2pix
+# if you have never made an http-server before, apparently you may need this rule
+gcloud compute firewall-rules create http-server --allow=tcp:80 --target-tags http-server
+# get ip address of load balancer
+gcloud compute forwarding-rules list
+# open that in the browser, should see the same page you saw locally
+
+# to destroy the GCP resources, use this
+terraform destroy
+```

@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import print_function
 
 import socket
-import urlparse
 import time
 import argparse
 import base64
@@ -99,7 +98,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            with open("static/index.html") as f:
+            with open("static/index.html", "rb") as f:
                 self.wfile.write(f.read())
             return
 
@@ -117,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_header("Content-Type", "application/octet-stream")
         self.end_headers()
-        with open("static/" + path) as f:
+        with open("static/" + path, "rb") as f:
             self.wfile.write(f.read())
 
 
@@ -154,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
 
             variants = models[name]  # "cloud" and "local" are the two possible variants
 
-            content_len = int(self.headers.getheader("content-length", 0))
+            content_len = int(self.headers.get("content-length", "0"))
             if content_len > 1 * 1024 * 1024:
                 raise Exception("post body too large")
             input_data = self.rfile.read(content_len)
@@ -192,9 +191,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise Exception("too many requests")
 
             # add any missing padding
-            output_b64data += "=" * (-len(output_b64data) % 4)
+            output_b64data += b"=" * (-len(output_b64data) % 4)
             output_data = base64.urlsafe_b64decode(output_b64data)
-            if output_data.startswith("\x89PNG"):
+            if output_data.startswith(b"\x89PNG"):
                 headers["content-type"] = "image/png"
             else:
                 headers["content-type"] = "image/jpeg"
@@ -207,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             body = "server error"
 
         self.send_response(status)
-        for key, value in headers.iteritems():
+        for key, value in headers.items():
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
@@ -273,7 +272,7 @@ def main():
                 project_id = a.project
         else:
             credentials = oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(a.credentials, scopes)
-            with open(a.credentials) as f:
+            with open(a.credentials, "r") as f:
                 project_id = json.loads(f.read())["project_id"]
 
         # due to what appears to be a bug, we cannot get the discovery document when specifying an http client

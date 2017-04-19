@@ -101,8 +101,6 @@ def main():
         "PYTHONUNBUFFERED=x",
         "--env",
         "CUDA_CACHE_PATH=/host/tmp/cuda-cache",
-        "--env",
-        "HOME=/host" + os.environ["HOME"],
     ]
 
     if a.port is not None:

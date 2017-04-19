@@ -581,13 +581,17 @@ def main():
         input = tf.placeholder(tf.string, shape=[1])
         input_data = tf.decode_base64(input[0])
         input_image = tf.image.decode_png(input_data)
+
         # remove alpha channel if present
-        input_image = input_image[:,:,:3]
+        input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 4), lambda: input_image[:,:,:3], lambda: input_image)
+        # convert grayscale to RGB
+        input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 1), lambda: tf.image.grayscale_to_rgb(input_image), lambda: input_image)
+
         input_image = tf.image.convert_image_dtype(input_image, dtype=tf.float32)
         input_image.set_shape([CROP_SIZE, CROP_SIZE, 3])
         batch_input = tf.expand_dims(input_image, axis=0)
 
-        with tf.variable_scope("generator") as scope:
+        with tf.variable_scope("generator"):
             batch_output = deprocess(create_generator(preprocess(batch_input), 3))
 
         output_image = tf.image.convert_image_dtype(batch_output, dtype=tf.uint8)[0]
