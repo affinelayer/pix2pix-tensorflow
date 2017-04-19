@@ -17,7 +17,7 @@ a = parser.parse_args()
 
 
 def main():
-    with open(a.input_file) as f:
+    with open(a.input_file, "rb") as f:
         input_data = f.read()
 
     output_data = urlopen(a.url, data=input_data).read()
