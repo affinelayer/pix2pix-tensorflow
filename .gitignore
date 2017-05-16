@@ -6,3 +6,5 @@ terraform.tfstate
 terraform.tfstate.backup
 terraform.tfvars
 .idea
+facades
+facades_train
