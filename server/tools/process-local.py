@@ -25,8 +25,8 @@ def main():
     with tf.Session() as sess:
         saver = tf.train.import_meta_graph(a.model_dir + "/export.meta")
         saver.restore(sess, a.model_dir + "/export")
-        input_vars = json.loads(tf.get_collection("inputs")[0])
-        output_vars = json.loads(tf.get_collection("outputs")[0])
+        input_vars = json.loads(tf.get_collection("inputs")[0].decode('utf8'))
+        output_vars = json.loads(tf.get_collection("outputs")[0].decode('utf8'))
         input = tf.get_default_graph().get_tensor_by_name(input_vars["input"])
         output = tf.get_default_graph().get_tensor_by_name(output_vars["output"])
 
