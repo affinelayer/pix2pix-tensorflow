@@ -98,7 +98,9 @@ def conv(batch_input, out_channels, stride):
         #     => [batch, out_height, out_width, out_channels]
         padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="CONSTANT")
         conv = tf.nn.conv2d(padded_input, filter, [1, stride, stride, 1], padding="VALID")
-        return conv
+        biases = tf.get_variable('biases', [out_channels],
+                                 initializer=tf.constant_initializer(0.0))
+        return conv + biases
 
 
 def lrelu(x, a):
@@ -134,7 +136,9 @@ def deconv(batch_input, out_channels):
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, out_channels, in_channels]
         #     => [batch, out_height, out_width, out_channels]
         conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * 2, in_width * 2, out_channels], [1, 2, 2, 1], padding="SAME")
-        return conv
+        biases = tf.get_variable('biases', [out_channels],
+                                 initializer=tf.constant_initializer(0.0))
+        return conv + biases
 
 
 def check_image(image):
