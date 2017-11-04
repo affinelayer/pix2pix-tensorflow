@@ -7,13 +7,14 @@ import numpy as np
 import argparse
 import json
 import base64
-
+import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_dir", required=True, help="directory containing exported model")
 parser.add_argument("--input_file", required=True, help="input PNG image file")
 parser.add_argument("--output_file", required=True, help="output PNG image file")
 a = parser.parse_args()
+
 
 def main():
     with open(a.input_file, "rb") as f:
@@ -23,8 +24,9 @@ def main():
     input_instance = json.loads(json.dumps(input_instance))
 
     with tf.Session() as sess:
-        saver = tf.train.import_meta_graph(a.model_dir + "/export.meta")
-        saver.restore(sess, a.model_dir + "/export")
+
+        saver = tf.train.import_meta_graph(os.path.join(a.model_dir, "export.meta"))
+        saver.restore(sess, os.path.join(a.model_dir + "export"))
         input_vars = json.loads(tf.get_collection("inputs")[0])
         output_vars = json.loads(tf.get_collection("outputs")[0])
         input = tf.get_default_graph().get_tensor_by_name(input_vars["input"])
