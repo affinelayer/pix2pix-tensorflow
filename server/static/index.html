@@ -1,29 +1,29 @@
 <html>
 <body>
 
+<div>edges2cats</div>
+<div id="edges2cats"></div>
+
 <div>edges2shoes</div>
 <div id="edges2shoes"></div>
-
-<div>facades</div>
-<div id="facades"></div>
 
 <div>edges2handbags</div>
 <div id="edges2handbags"></div>
 
-<div>edges2cats</div>
-<div id="edges2cats"></div>
+<div>facades</div>
+<div id="facades"></div>
 
+<script src="deeplearn-0.3.15.js"></script>
 <script>
 
 var editor_background = new Image()
 editor_background.src = "editor.png"
 
+var DEBUG = false
 var SIZE = 256
 
 var editors = []
 var request_in_progress = false
-var last_request_failed = false
-var base_url = ""  // this will cause it to talk to the server of this file
 
 function main() {
   var create_editor = function(config) {
@@ -34,8 +34,23 @@ function main() {
   }
 
   create_editor({
+    name: "edges2cats",
+    weights_url: "/models/edges2cats_AtoB.pict",
+    mode: "line",
+    clear: "#FFFFFF",
+    colors: {
+      line: "#000000",
+      eraser: "#ffffff",
+    },
+    draw: "#000000",
+    initial_input: "/edges2cats-input.png",
+    initial_output: "/edges2cats-output.png",
+    sheet_url: "/edges2cats-sheet.jpg",
+  })
+
+  create_editor({
     name: "edges2shoes",
-    generate_url: base_url + "/edges2shoes_AtoB",
+    weights_url: "/models/edges2shoes_AtoB.pict",
     mode: "line",
     clear: "#FFFFFF",
     colors: {
@@ -50,7 +65,7 @@ function main() {
 
   create_editor({
     name: "edges2handbags",
-    generate_url: base_url + "/edges2handbags_AtoB",
+    weights_url: "/models/edges2handbags_AtoB.pict",
     mode: "line",
     clear: "#FFFFFF",
     colors: {
@@ -64,23 +79,8 @@ function main() {
   })
 
   create_editor({
-    name: "edges2cats",
-    generate_url: base_url + "/edges2cats_AtoB",
-    mode: "line",
-    clear: "#FFFFFF",
-    colors: {
-      line: "#000000",
-      eraser: "#ffffff",
-    },
-    draw: "#000000",
-    initial_input: "/edges2cats-input.png",
-    initial_output: "/edges2cats-output.png",
-    sheet_url: "/edges2cats-sheet.jpg",
-  })
-
-  create_editor({
     name: "facades",
-    generate_url: base_url + "/facades_BtoA",
+    weights_url: "/models/facades_BtoA.pict",
     mode: "rect",
     colors: {
       background: "#0006d9",
@@ -89,7 +89,7 @@ function main() {
       "window": "#0075ff",
       "window sill": "#68f898",
       "window head": "#1dffdd",
-      "shutter": "#eeed28",
+      shutter: "#eeed28",
       balcony: "#b8ff38",
       trim: "#ff9204",
       cornice: "#ff4401",
@@ -103,7 +103,7 @@ function main() {
     sheet_url: "/facades-sheet.jpg",
   })
 
-  init()
+  window.requestAnimationFrame(frame)
 }
 window.onload = main
 
@@ -112,6 +112,156 @@ function render() {
     editors[i].render()
   }
 }
+
+
+// model
+
+var weights_cache = {}
+function fetch_weights(path, progress_cb) {
+  return new Promise(function(resolve, reject) {
+    if (path in weights_cache) {
+      resolve(weights_cache[path])
+      return
+    }
+
+    var xhr = new XMLHttpRequest()
+    xhr.open("GET", path, true)
+    xhr.responseType = "arraybuffer"
+
+    xhr.onprogress = function(e) {
+      progress_cb(e.loaded, e.total)
+    }
+
+    xhr.onload = function(e) {
+      if (xhr.status != 200) {
+        reject("missing model")
+        return
+      }
+      var buf = xhr.response
+      if (!buf) {
+        reject("invalid arraybuffer")
+        return
+      }
+
+      var parts = []
+      var offset = 0
+      while (offset < buf.byteLength) {
+        var b = new Uint8Array(buf.slice(offset, offset+4))
+        offset += 4
+        var len = (b[0] << 24) + (b[1] << 16) + (b[2] << 8) + b[3]
+        parts.push(buf.slice(offset, offset + len))
+        offset += len
+      }
+
+      var shapes = JSON.parse((new TextDecoder("utf8")).decode(parts[0]))
+      var index = new Float32Array(parts[1])
+      var encoded = new Uint8Array(parts[2])
+
+      // decode using index
+      var arr = new Float32Array(encoded.length)
+      for (var i = 0; i < arr.length; i++) {
+        arr[i] = index[encoded[i]]
+      }
+
+      var weights = {}
+      var offset = 0
+      for (var i = 0; i < shapes.length; i++) {
+        var shape = shapes[i].shape
+        var size = shape.reduce((total, num) => total * num)
+        var values = arr.slice(offset, offset+size)
+        var dlarr = dl.Array1D.new(values, "float32")
+        weights[shapes[i].name] = dlarr.reshape(shape)
+        offset += size
+      }
+      weights_cache[path] = weights
+      resolve(weights)
+    }
+    xhr.send(null)
+  })
+}
+
+function model(input, weights) {
+  const math = dl.ENV.math
+
+  function preprocess(input) {
+    return math.subtract(math.multiply(input, dl.Scalar.new(2)), dl.Scalar.new(1))
+  }
+
+  function deprocess(input) {
+    return math.divide(math.add(input, dl.Scalar.new(1)), dl.Scalar.new(2))
+  }
+
+  function batchnorm(input, scale, offset) {
+    var moments = math.moments(input, [0, 1])
+    const varianceEpsilon = 1e-5
+    return math.batchNormalization3D(input, moments.mean, moments.variance, varianceEpsilon, scale, offset)
+  }
+
+  function conv2d(input, filter, bias) {
+    return math.conv2d(input, filter, bias, [2, 2], "same")
+  }
+
+  function deconv2d(input, filter, bias) {
+    var convolved = math.conv2dTranspose(input, filter, [input.shape[0]*2, input.shape[1]*2, filter.shape[2]], [2, 2], "same")
+    var biased = math.add(convolved, bias)
+    return biased
+  }
+
+  var preprocessed_input = preprocess(input)
+
+  var layers = []
+
+  var filter = weights["generator/encoder_1/conv2d/kernel"]
+  var bias = weights["generator/encoder_1/conv2d/bias"]
+  var convolved = conv2d(preprocessed_input, filter, bias)
+  layers.push(convolved)
+
+  for (var i = 2; i <= 8; i++) {
+    var scope = "generator/encoder_" + i.toString()
+    var filter = weights[scope + "/conv2d/kernel"]
+    var bias = weights[scope + "/conv2d/bias"]
+    var layer_input = layers[layers.length - 1]
+    var rectified = math.leakyRelu(layer_input, 0.2)
+    var convolved = conv2d(rectified, filter, bias)
+    var scale = weights[scope + "/batch_normalization/gamma"]
+    var offset = weights[scope + "/batch_normalization/beta"]
+    var normalized = batchnorm(convolved, scale, offset)
+    layers.push(normalized)
+  }
+
+  for (var i = 8; i >= 2; i--) {
+    if (i == 8) {
+      var layer_input = layers[layers.length - 1]
+    } else {
+      var skip_layer = i - 1
+      var layer_input = math.concat3D(layers[layers.length - 1], layers[skip_layer], 2)
+    }
+    var rectified = math.relu(layer_input)
+    var scope = "generator/decoder_" + i.toString()
+    var filter = weights[scope + "/conv2d_transpose/kernel"]
+    var bias = weights[scope + "/conv2d_transpose/bias"]
+    var convolved = deconv2d(rectified, filter, bias)
+    var scale = weights[scope + "/batch_normalization/gamma"]
+    var offset = weights[scope + "/batch_normalization/beta"]
+    var normalized = batchnorm(convolved, scale, offset)
+    // missing dropout
+    layers.push(normalized)
+  }
+
+  var layer_input = math.concat3D(layers[layers.length - 1], layers[0], 2)
+  var rectified = math.relu(layer_input)
+  var filter = weights["generator/decoder_1/conv2d_transpose/kernel"]
+  var bias = weights["generator/decoder_1/conv2d_transpose/bias"]
+  var convolved = deconv2d(rectified, filter, bias)
+  var rectified = math.tanh(convolved)
+  layers.push(rectified)
+
+  var output = layers[layers.length - 1]
+  var deprocessed_output = deprocess(output)
+
+  return deprocessed_output
+}
+
 
 // editor
 
@@ -137,6 +287,9 @@ function Editor(config) {
   output.onload = () => {
     this.output.drawImage(output, 0, 0)
   }
+
+  this.progress = null
+  this.last_failure = null
 
   this.sheet_loaded = false
   this.sheet = new Image()
@@ -164,7 +317,7 @@ Editor.prototype = {
     }
     this.buffer = this.buffers.pop()
   },
-render: function() {
+  render: function() {
     var v = this.view
 
     v.ctx.clearRect(0, 0, v.f.width, v.f.height)
@@ -181,7 +334,7 @@ render: function() {
           if (v.contains(mouse_pos)) {
             cursor_style = "pointer"
           }
-          
+
           if (mouse_released && v.contains(mouse_pos)) {
             this.config.draw = color
             update()
@@ -275,7 +428,7 @@ render: function() {
             if (mouse_down) {
               v.ctx.save()
               v.ctx.rect(0, 0, v.f.width, v.f.height)
-              v.ctx.clip();
+              v.ctx.clip()
               v.ctx.fillStyle = this.config.draw
               v.ctx.fillRect(start.x, start.y, width, height)
               v.ctx.restore()
@@ -291,47 +444,73 @@ render: function() {
     })
 
     v.frame("process_button", 461 - 32, 148, 32*2, 40, () => {
-      if (request_in_progress) {
-        do_button(v, "...")
+      if (this.progress != null) {
+        v.ctx.font = "12px Arial"
+        v.ctx.fillStyle = "#000"
+        var s = "downloading"
+        v.ctx.fillText(s, (v.f.width - v.ctx.measureText(s).width)/2, 5)
+        s = "model"
+        v.ctx.fillText(s, (v.f.width - v.ctx.measureText(s).width)/2, 15)
+
+        v.frame("progress_bar", 0, 25, v.f.width, 15, () => {
+          v.ctx.fillStyle = "#f92672"
+          v.ctx.fillRect(0, 0, v.f.width * this.progress, v.f.height)
+        })
+      } else if (request_in_progress) {
+        do_button(v, "running")
       } else {
         if (do_button(v, "process")) {
           if (request_in_progress) {
             console.log("request already in progress")
             return
           }
-
-          last_request_failed = false
-          var convert = createContext(SIZE, SIZE, 1)
-          convert.drawImage(this.buffer.canvas, 0, 0, convert.canvas.width, convert.canvas.height)
-          var input_b64 = convert.canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "")
-          var xhr = new XMLHttpRequest()
-          xhr.open("POST", this.config.generate_url, true)
-          xhr.setRequestHeader("Content-Type", "image/png")
-          xhr.responseType = "arraybuffer"
-          xhr.timeout = 45000
-
-          xhr.onreadystatechange = () => {
-          	if (xhr.readyState == 4) {
-              request_in_progress = false
-              update()
-              if (xhr.status == 200) {
-                var output_bin = new Uint8Array(xhr.response)
-                var output_b64 = bin_to_b64(output_bin)
-                var output = new Image()
-                output.src = "data:image\/png;base64," + output_b64
-                output.onload = () => {
-                  // browsers besides chrome need to wait for the image to load
-                  this.output.drawImage(output, 0, 0)
-                  update()
-                }
-              } else {
-                last_request_failed = true
-              }
-          	}
-          }
           request_in_progress = true
-          update()
-          xhr.send(b64_to_bin(input_b64))
+          this.last_failure = null
+
+          this.progress = 0
+          progress_cb = (retrieved, total) => {
+            this.progress = retrieved/total
+            update()
+          }
+
+          fetch_weights(this.config.weights_url, progress_cb).then((weights) => {
+            this.progress = null
+            update()
+            // delay a short period of time so that UI updates before the model uses all the CPU
+            delay(() => {
+              // var g = new dl.Graph()
+
+              var convert = createContext(SIZE, SIZE, 1)
+              convert.drawImage(this.buffer.canvas, 0, 0, convert.canvas.width, convert.canvas.height)
+              var input_uint8_data = convert.getImageData(0, 0, SIZE, SIZE).data
+              var input_float32_data = Float32Array.from(input_uint8_data, (x) => x / 255)
+
+              console.time('render')
+              const math = dl.ENV.math
+              math.startScope()
+              var input_rgba = dl.Array3D.new([SIZE, SIZE, 4], input_float32_data, "float32")
+              var input_rgb = math.slice3D(input_rgba, [0, 0, 0], [SIZE, SIZE, 3])
+
+              var output_rgb = model(input_rgb, weights)
+
+              var alpha = dl.Array3D.ones([SIZE, SIZE, 1])
+              var output_rgba = math.concat3D(output_rgb, alpha, 2)
+
+              output_rgba.getValuesAsync().then((output_float32_data) => {
+                var output_uint8_data = Uint8ClampedArray.from(output_float32_data, (x) => x * 255)
+                this.output.putImageData(new ImageData(output_uint8_data, SIZE, SIZE), 0, 0)
+                math.endScope()
+                console.timeEnd('render')
+                request_in_progress = false
+                update()
+              })
+            })
+          }, (e) => {
+            this.last_failure = e
+            this.progress = null
+            request_in_progress = false
+            update()
+          })
         }
       }
     })
@@ -384,19 +563,19 @@ render: function() {
         a.href = url
         a.download = "pix2pix.png"
         // use createEvent instead of .click() to work in firefox
-        // also can't revoke the object url because firefox breaks
+        // also can"t revoke the object url because firefox breaks
         var event = document.createEvent("MouseEvents")
         event.initEvent("click", true, true)
         a.dispatchEvent(event)
-        // safari doesn't work at all
+        // safari doesn"t work at all
       }
     })
 
-    if (last_request_failed) {
+    if (this.last_failure != null) {
       v.frame("server_error", 50, 350, v.f.width, 50, () => {
         v.ctx.font = "20px Arial"
         v.ctx.fillStyle = "red"
-        v.center_text("error connecting to server, try again later")
+        v.center_text(fmt("error %s", this.last_failure))
       })
     }
   },
@@ -427,17 +606,128 @@ function b64_to_bin(str) {
   return bin
 }
 
-function bin_to_b64(bin) {
-  var parts = []
-  for (var i = 0; i < bin.length; i++) {
-    parts.push(String.fromCharCode(bin[i]))
+function delay(fn) {
+  setTimeout(fn, 0)
+}
+
+function default_format(obj) {
+  if (typeof(obj) === "string") {
+    return obj
+  } else {
+    return JSON.stringify(obj)
   }
-  var binstr = parts.join("")
-  return btoa(binstr)
+}
+
+function fmt() {
+  if (arguments.length === 0) {
+    return "error"
+  }
+
+  var format = arguments[0]
+  var output = ""
+
+  var arg_index = 1
+  var i = 0
+
+  while (i < format.length) {
+    var c = format[i]
+    i++
+
+    if (c != "%") {
+      output += c
+      continue
+    }
+
+    if (i === format.length) {
+      output += "%!(NOVERB)"
+      break
+    }
+
+    var flag = format[i]
+    i++
+
+    var pad_char = " "
+
+    if (flag == "0") {
+      pad_char = "0"
+    } else {
+      // not a flag
+      i--
+    }
+
+    var width = 0
+    while (format[i] >= "0" && format[i] <= "9") {
+      width *= 10
+      width += parseInt(format[i], 10)
+      i++
+    }
+
+    var f = format[i]
+    i++
+
+    if (f === "%") {
+      output += "%"
+      continue
+    }
+
+    if (arg_index === arguments.length) {
+      output += "%!" + f + "(MISSING)"
+      continue
+    }
+
+    var arg = arguments[arg_index]
+    arg_index++
+
+    var o = null
+
+    if (f === "v") {
+      o = default_format(arg)
+    } else if (f === "s" && typeof(arg) === "string") {
+      o = arg
+    } else if (f === "T") {
+      o = typeof(arg)
+    } else if (f === "d" && typeof(arg) === "number") {
+      o = arg.toFixed(0)
+    } else if (f === "f" && typeof(arg) === "number") {
+      o = arg.toString()
+    } else if (f === "x" && typeof(arg) === "number") {
+      o = Math.round(arg).toString(16)
+    } else if (f === "t" && typeof(arg) === "boolean") {
+      if (arg) {
+        o = "true"
+      } else {
+        o = "false"
+      }
+    } else {
+      output += "%!" + f + "(" + typeof(arg) + "=" + default_format(arg) + ")"
+    }
+
+    if (o !== null) {
+      if (o.length < width) {
+        output += Array(width - o.length + 1).join(pad_char)
+      }
+      output += o
+    }
+  }
+
+  if (arg_index < arguments.length) {
+    output += "%!(EXTRA "
+    while (arg_index < arguments.length) {
+      var arg = arguments[arg_index]
+      output += typeof(arg) + "=" + default_format(arg)
+      if (arg_index < arguments.length - 1) {
+        output += ", "
+      }
+      arg_index++
+    }
+    output += ")"
+  }
+
+  return output
 }
 
 
-// immediate mode
+// immediate mode UI
 
 var SCALE = 2
 
@@ -455,6 +745,32 @@ var drag_start = [0, 0]
 var mouse_down = false
 var mouse_pressed = false
 var mouse_released = false
+
+if (DEBUG) {
+  var fps_elem = document.createElement("div")
+  stylize(fps_elem, {
+    width: "300px",
+    height: "20px",
+    margin: "5px",
+    fontFamily: "Monaco",
+    fontSize: "12px",
+    position: "absolute",
+    top: fmt("%dpx", 10),
+    right: fmt("%dpx", 10),
+  })
+  document.body.insertBefore(fps_elem, document.body.firstChild)
+
+  var status_elem = document.createElement("div")
+  stylize(status_elem, {
+    width: "10px",
+    height: "10px",
+    margin: "5px",
+    position: "absolute",
+    top: fmt("%dpx", 10),
+    left: fmt("%dpx", 10),
+  })
+  document.body.insertBefore(status_elem, document.body.firstChild)
+}
 
 function View(name, width, height) {
   this.ctx = createContext(width, height, SCALE)
@@ -574,7 +890,13 @@ function frame() {
   var raf = window.requestAnimationFrame(frame)
 
   if (!updated && Object.keys(animations).length == 0) {
+    if (DEBUG) {
+      status_elem.style.backgroundColor = "black"
+    }
     return
+  }
+  if (DEBUG) {
+    status_elem.style.backgroundColor = "red"
   }
 
   now = new Date()
@@ -592,6 +914,13 @@ function frame() {
     document.body.style.cursor = "default"
   } else {
     document.body.style.cursor = cursor_style
+  }
+
+  if (DEBUG) {
+    var decay = 0.9
+    var current_frame_rate = 1 / ((now - last_frame) / 1000)
+    frame_rate = frame_rate * decay + current_frame_rate * (1 - decay)
+    fps_elem.textContent = fmt("fps: %d", frame_rate)
   }
 
   last_frame = now
@@ -688,126 +1017,6 @@ document.addEventListener("mouseup", function(e) {
   mouse_released = true
   update()
 })
-
-function default_format(obj) {
-	if (typeof(obj) === "string") {
-		return obj
-	} else {
-		return JSON.stringify(obj)
-	}
-}
-
-function fmt() {
-	if (arguments.length === 0) {
-		return "error"
-	}
-
-	var format = arguments[0]
-	var output = ""
-
-	var arg_index = 1
-	var i = 0
-
-	while (i < format.length) {
-		var c = format[i]
-		i++
-
-		if (c != "%") {
-			output += c
-			continue
-		}
-
-		if (i === format.length) {
-			output += "%!(NOVERB)"
-			break
-		}
-
-		var flag = format[i]
-		i++
-
-		var pad_char = " "
-
-		if (flag == "0") {
-			pad_char = "0"
-		} else {
-			// not a flag
-			i--
-		}
-
-		var width = 0
-		while (format[i] >= "0" && format[i] <= "9") {
-			width *= 10
-			width += parseInt(format[i], 10)
-			i++
-		}
-
-		var f = format[i]
-		i++
-
-		if (f === "%") {
-			output += "%"
-			continue
-		}
-
-		if (arg_index === arguments.length) {
-			output += "%!" + f + "(MISSING)"
-			continue
-		}
-
-		var arg = arguments[arg_index]
-		arg_index++
-
-		var o = null
-
-		if (f === "v") {
-			o = default_format(arg)
-		} else if (f === "s" && typeof(arg) === "string") {
-			o = arg
-		} else if (f === "T") {
-			o = typeof(arg)
-		} else if (f === "d" && typeof(arg) === "number") {
-			o = arg.toFixed(0)
-		} else if (f === "f" && typeof(arg) === "number") {
-			o = arg.toString()
-		} else if (f === "x" && typeof(arg) === "number") {
-			o = Math.round(arg).toString(16)
-		} else if (f === "t" && typeof(arg) === "boolean") {
-			if (arg) {
-				o = "true"
-			} else {
-				o = "false"
-			}
-		} else {
-			output += "%!" + f + "(" + typeof(arg) + "=" + default_format(arg) + ")"
-		}
-
-		if (o !== null) {
-			if (o.length < width) {
-				output += Array(width - o.length + 1).join(pad_char)
-			}
-			output += o
-		}
-	}
-
-	if (arg_index < arguments.length) {
-		output += "%!(EXTRA "
-		while (arg_index < arguments.length) {
-			var arg = arguments[arg_index]
-			output += typeof(arg) + "=" + default_format(arg)
-			if (arg_index < arguments.length - 1) {
-				output += ", "
-			}
-			arg_index++
-		}
-		output += ")"
-	}
-
-	return output
-}
-
-function init() {
-  window.requestAnimationFrame(frame)
-}
 
 </script>
 

@@ -91,14 +91,9 @@ def augment(image, brightness):
 
 
 def conv(batch_input, out_channels, stride):
-    with tf.variable_scope("conv"):
-        in_channels = batch_input.get_shape()[3]
-        filter = tf.get_variable("filter", [4, 4, in_channels, out_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
-        # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
-        #     => [batch, out_height, out_width, out_channels]
-        padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="CONSTANT")
-        conv = tf.nn.conv2d(padded_input, filter, [1, stride, stride, 1], padding="VALID")
-        return conv
+    # [batch, in_height, in_width, in_channels] => [batch, out_height, out_width, out_channels]
+    padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="CONSTANT")
+    return tf.layers.conv2d(padded_input, out_channels, kernel_size=4, strides=(stride, stride), padding="valid", kernel_initializer=tf.random_normal_initializer(0, 0.02))
 
 
 def lrelu(x, a):
@@ -113,28 +108,13 @@ def lrelu(x, a):
         return (0.5 * (1 + a)) * x + (0.5 * (1 - a)) * tf.abs(x)
 
 
-def batchnorm(input):
-    with tf.variable_scope("batchnorm"):
-        # this block looks like it has 3 inputs on the graph unless we do this
-        input = tf.identity(input)
-
-        channels = input.get_shape()[3]
-        offset = tf.get_variable("offset", [channels], dtype=tf.float32, initializer=tf.zeros_initializer())
-        scale = tf.get_variable("scale", [channels], dtype=tf.float32, initializer=tf.random_normal_initializer(1.0, 0.02))
-        mean, variance = tf.nn.moments(input, axes=[0, 1, 2], keep_dims=False)
-        variance_epsilon = 1e-5
-        normalized = tf.nn.batch_normalization(input, mean, variance, offset, scale, variance_epsilon=variance_epsilon)
-        return normalized
+def batchnorm(inputs):
+    return tf.layers.batch_normalization(inputs, axis=3, epsilon=1e-5, momentum=0.1, training=True, gamma_initializer=tf.random_normal_initializer(1.0, 0.02))
 
 
 def deconv(batch_input, out_channels):
-    with tf.variable_scope("deconv"):
-        batch, in_height, in_width, in_channels = [int(d) for d in batch_input.get_shape()]
-        filter = tf.get_variable("filter", [4, 4, out_channels, in_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
-        # [batch, in_height, in_width, in_channels], [filter_width, filter_height, out_channels, in_channels]
-        #     => [batch, out_height, out_width, out_channels]
-        conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * 2, in_width * 2, out_channels], [1, 2, 2, 1], padding="SAME")
-        return conv
+    # [batch, in_height, in_width, in_channels] => [batch, out_height, out_width, out_channels]
+    return tf.layers.conv2d_transpose(batch_input, out_channels, kernel_size=4, strides=(2, 2), padding="same", kernel_initializer=tf.random_normal_initializer(0, 0.02))
 
 
 def check_image(image):
@@ -430,7 +410,7 @@ def create_model(inputs, targets):
 
         return layers[-1]
 
-    with tf.variable_scope("generator") as scope:
+    with tf.variable_scope("generator"):
         out_channels = int(targets.get_shape()[-1])
         outputs = create_generator(inputs, out_channels)
 
@@ -475,7 +455,7 @@ def create_model(inputs, targets):
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
     update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1])
 
-    global_step = tf.contrib.framework.get_or_create_global_step()
+    global_step = tf.train.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step+1)
 
     return Model(
@@ -539,9 +519,6 @@ def append_index(filesets, step=False):
 
 
 def main():
-    if tf.__version__.split('.')[0] != "1":
-        raise Exception("Tensorflow version 1 required")
-
     if a.seed is None:
         a.seed = random.randint(0, 2**31 - 1)
 
@@ -741,7 +718,6 @@ def main():
                 for i, f in enumerate(filesets):
                     print("evaluated image", f["name"])
                 index_path = append_index(filesets)
-
             print("wrote index at", index_path)
         else:
             # training

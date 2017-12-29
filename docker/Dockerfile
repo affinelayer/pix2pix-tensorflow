@@ -1,4 +1,4 @@
-FROM nvidia/cuda:8.0-cudnn5-devel-ubuntu16.04
+FROM nvidia/cuda:8.0-cudnn6-devel-ubuntu16.04
 
 WORKDIR /root
 
@@ -11,6 +11,7 @@ RUN apt-get install -y --no-install-recommends \
         cmake \
         git \
         wget \
+        curl \
         libatlas-base-dev \
         libboost-all-dev \
         libgflags-dev \
@@ -80,7 +81,6 @@ RUN curl -O https://raw.githubusercontent.com/pdollar/edges/master/private/edges
 # from https://github.com/tensorflow/tensorflow/blob/master/tensorflow/tools/docker/Dockerfile.gpu
 RUN apt-get install -y --no-install-recommends \
         build-essential \
-        curl \
         libfreetype6-dev \
         libpng12-dev \
         libzmq3-dev \
@@ -116,8 +116,4 @@ RUN pip install \
     rsa==3.4.2 \
     six==1.10.0 \
     uritemplate==3.0.0 \
-    tensorflow-gpu==1.0.0
-
-RUN curl -O https://releases.hashicorp.com/terraform/0.8.7/terraform_0.8.7_linux_amd64.zip && \
-    unzip terraform_0.8.7_linux_amd64.zip -d /usr/local/bin && \
-    rm terraform_0.8.7_linux_amd64.zip
+    tensorflow-gpu==1.4.1
