@@ -2,7 +2,7 @@
 
 Host pix2pix-tensorflow models to be used with something like the [Image-to-Image Demo](https://affinelayer.com/pixsrv/).
 
-This is a simple python server that uses [deeplearn.js](https://deeplearnjs.org/) exported from pix2pix checkpoints using `tools/export-checkpoint.py`.
+This is a simple python server that uses [deeplearn.js](https://deeplearnjs.org/) and weights exported from pix2pix checkpoints using `tools/export-checkpoint.py`.
 
 ## Exporting
 
