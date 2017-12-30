@@ -95,6 +95,11 @@ def main():
     if "CUDA_VISIBLE_DEVICES" in os.environ:
         docker_args.extend(["--env", "CUDA_VISIBLE_DEVICES=%s" % os.environ["CUDA_VISIBLE_DEVICES"]])
 
+    for i, arg in enumerate(cmd):
+        # change absolute paths
+        if arg.startswith("/"):
+            cmd[i] = "/host" + arg
+
     args = [docker_path, "run"] + docker_args + ["affinelayer/pix2pix-tensorflow:v3"] + cmd
 
     if not os.access("/var/run/docker.sock", os.R_OK):
