@@ -14,31 +14,32 @@ import math
 import time
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--input_dir", help="path to folder containing images")
+parser.add_argument("--input_dir", default='../../../data/GoogleArt_wikimedia', help="path to folder containing datasets")
+parser.add_argument("--dataset", default='gart_256_p2p_ds2_crop2h', help="name of folder containing images in input_dir")
+parser.add_argument("--output_dir", default='./out', help="where to put output files (dataset name will be appended")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
-parser.add_argument("--output_dir", required=True, help="where to put output files")
 parser.add_argument("--seed", type=int)
-parser.add_argument("--checkpoint", default=None, help="directory with checkpoint to resume training from or use for testing")
+parser.add_argument("--checkpoint", help="directory with checkpoint to resume training from or use for testing")
 
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
-parser.add_argument("--max_epochs", type=int, help="number of training epochs")
+parser.add_argument("--max_epochs", default=200, type=int, help="number of training epochs")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
-parser.add_argument("--display_freq", type=int, default=0, help="write current training images every display_freq steps")
+parser.add_argument("--display_freq", type=int, default=5000, help="write current training images every display_freq steps")
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 
 parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
 parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
 parser.add_argument("--lab_colorization", action="store_true", help="split input image into brightness (A) and color (B)")
-parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
-parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
+parser.add_argument("--batch_size", type=int, default=4, help="number of images in batch")
+parser.add_argument("--which_direction", type=str, default="BtoA", choices=["AtoB", "BtoA"])
 parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
 parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
+parser.add_argument("--scale_size", type=int, default=256, help="scale images to this size before cropping to 256x256")
 parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
 parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
-parser.set_defaults(flip=True)
+parser.set_defaults(flip=False)
 parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
@@ -47,9 +48,17 @@ parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
+a.input_dir = os.path.join(a.input_dir, a.dataset)
+a.output_dir = os.path.join(a.output_dir, a.dataset)
+
+if a.checkpoint is not None and len(a.checkpoint) > 0:
+	a.checkpoint = a.output_dir
+
+if a.checkpoint is None and a.mode != "train":
+	a.checkpoint = a.output_dir
 
 EPS = 1e-12
-CROP_SIZE = 256
+CROP_SIZE = a.scale_size
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
 Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
@@ -326,6 +335,8 @@ def load_examples():
 def create_generator(generator_inputs, generator_outputs_channels):
     layers = []
 
+    generator_inputs = tf.identity(generator_inputs, name = 'generator_inputs')
+
     # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
     with tf.variable_scope("encoder_1"):
         output = gen_conv(generator_inputs, a.ngf)
@@ -387,6 +398,8 @@ def create_generator(generator_inputs, generator_outputs_channels):
         output = gen_deconv(rectified, generator_outputs_channels)
         output = tf.tanh(output)
         layers.append(output)
+
+    layers.append(tf.identity(layers[-1], name='generator_outputs'))
 
     return layers[-1]
 
@@ -493,12 +506,14 @@ def save_images(fetches, step=None):
 
     filesets = []
     for i, in_path in enumerate(fetches["paths"]):
-        name, _ = os.path.splitext(os.path.basename(in_path.decode("utf8")))
+        # name, _ = os.path.splitext(os.path.basename(in_path.decode("utf8")))
+        name = str(i)
         fileset = {"name": name, "step": step}
         for kind in ["inputs", "outputs", "targets"]:
-            filename = name + "-" + kind + ".png"
+            filename = name + "-" + kind
             if step is not None:
                 filename = "%08d-%s" % (step, filename)
+            filename = filename[:130] + ".png" # prevent errors with too long filename!
             fileset[kind] = filename
             out_path = os.path.join(image_dir, filename)
             contents = fetches[kind][i]
@@ -546,7 +561,8 @@ def main():
 
     if a.mode == "test" or a.mode == "export":
         if a.checkpoint is None:
-            raise Exception("checkpoint required for test mode")
+        	a.checkpoint = a.output_dir
+            #raise Exception("checkpoint required for test mode")
 
         # load some options from the checkpoint
         options = {"which_direction", "ngf", "ndf", "lab_colorization"}
@@ -616,9 +632,22 @@ def main():
             print("loading model from checkpoint")
             checkpoint = tf.train.latest_checkpoint(a.checkpoint)
             restore_saver.restore(sess, checkpoint)
+
             print("exporting model")
-            export_saver.export_meta_graph(filename=os.path.join(a.output_dir, "export.meta"))
-            export_saver.save(sess, os.path.join(a.output_dir, "export"), write_meta_graph=False)
+            filename = os.path.split(checkpoint)[1]
+            export_path = os.path.join(a.output_dir, 'export')
+            if not os.path.exists(export_path):
+                os.makedirs(export_path)
+
+            export_saver.export_meta_graph(filename=os.path.join(export_path, filename + "_export.meta"))
+            export_saver.save(sess, os.path.join(export_path, filename + "_export"), write_meta_graph=False)
+
+            # write frozen graph
+            export_path = os.path.join(a.output_dir, 'export_frz')
+            if not os.path.exists(export_path):
+                os.makedirs(export_path)
+            graph_frz = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def, ['generator/generator_outputs'])
+            tf.train.write_graph(graph_frz, export_path, filename+'_frz.pb', as_text=False)
 
         return
 
@@ -705,7 +734,7 @@ def main():
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
-    saver = tf.train.Saver(max_to_keep=1)
+    saver = tf.train.Saver(max_to_keep=200)
 
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)

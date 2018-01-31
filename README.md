@@ -1,3 +1,35 @@
+This is a fork of https://github.com/affinelayer/pix2pix-tensorflow with modifications to enable the trained models to be used in other environments (e.g. [ofxMSATensorFlow](https://github.com/memo/ofxMSATensorFlow)). Reasons as to why these changes are nessecary are described [here](https://github.com/memo/ofxMSATensorFlow/wiki/Loading-and-using-trained-tensorflow-models-in-openFrameworks).
+
+The only **difference in architecture** (if it can be called that) are named tf.identity operators on generator inputs and outputs, to address the last issue above. See [this commit](https://github.com/memo/pix2pix-tensorflow/commit/fb99c19690554400174ebf03aecaf63ad87785c7). 
+
+I've also made a **few tweaks to improve usability** (totally personal preference). Most are in [this commit](https://github.com/memo/pix2pix-tensorflow/commit/f0dd7c447e995d2a21d2f49e6b2c1d49a8eb3f7c). 
+Usage is very similar to the original with a few exceptions:
+
+- input_dir is to a folder containing datasets
+- an additional dataset name is required (which dataset to load from input_dir)
+- output is also send to output_dir/dataset folder
+- when testing or exporting, if no checkpoint is given, it defaults to output_dir/dataset
+
+ E.g. to train the command line arguments are:
+
+    python pix2pix.py \
+        --mode train \
+        --input_dir path/to/all/datasets
+        --dataset datasetname # folder inside path/to/all/datasets
+        --output_dir out # output files will be written to out/datasetname
+
+When exporting it also **exports a standalone frozen graph** (called graph_frz.pb) ready to be used by itself (e.g. in [ofxMSATensorFlow](https://github.com/memo/ofxMSATensorFlow)). See [this commit](https://github.com/memo/pix2pix-tensorflow/commit/9e40dd09ebb66714bc21c82edd9c78ac8b013a2c). I.e. after training, run 
+
+    python pix2pix.py \
+        --mode export \
+        --output_dir out # where outputs are
+        --dataset datasetname # folder inside  output_dir
+
+**Note**, even if you train with @affinelayer's original version, you can still load and export with this version to make the nessecary changes to the model.
+
+
+---
+
 # pix2pix-tensorflow
 
 Based on [pix2pix](https://phillipi.github.io/pix2pix/) by Isola et al.
