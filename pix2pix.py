@@ -549,7 +549,7 @@ def main():
             raise Exception("checkpoint required for test mode")
 
         # load some options from the checkpoint
-        options = {"which_direction", "ngf", "ndf", "lab_colorization"}
+        options = {"which_direction", "ngf", "ndf", "lab_colorization", "separable_conv"}
         with open(os.path.join(a.checkpoint, "options.json")) as f:
             for key, val in json.loads(f.read()).items():
                 if key in options:
